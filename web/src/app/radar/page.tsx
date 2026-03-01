@@ -1,4 +1,5 @@
 import Link from "next/link";
+import AuthGate from "@/components/AuthGate";
 
 type DisruptionEvent = {
   id: string;
@@ -50,44 +51,46 @@ function Badge({ text }: { text: string }) {
 
 export default function RadarPage() {
   return (
-    <div className="space-y-6">
-      <div className="flex items-end justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold">Disruption Radar</h1>
-          <p className="text-sm text-gray-600">
-            Live signals → mapped to suppliers → BOM risk → mitigation plans.
-          </p>
+    <AuthGate>
+      <div className="space-y-6">
+        <div className="flex items-end justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-semibold">Disruption Radar</h1>
+            <p className="text-sm text-gray-600">
+              Live signals → mapped to suppliers → BOM risk → mitigation plans.
+            </p>
+          </div>
+
+          <button className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:opacity-90">
+            Simulate new disruption
+          </button>
         </div>
 
-        <button className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:opacity-90">
-          Simulate new disruption
-        </button>
-      </div>
-
-      <div className="grid gap-4">
-        {events.map((e) => (
-          <Link
-            key={e.id}
-            href={`/event/${e.id}`}
-            className="rounded-xl border bg-white p-5 shadow-sm hover:shadow"
-          >
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="space-y-1">
-                <div className="text-sm text-gray-500">{e.id}</div>
-                <div className="text-base font-semibold">{e.title}</div>
-                <div className="flex flex-wrap gap-2 pt-1">
-                  <Badge text={e.type} />
-                  <Badge text={`Region: ${e.region}`} />
-                  <Badge text={`Severity: ${e.severity}`} />
-                  <Badge text={`Status: ${e.status}`} />
+        <div className="grid gap-4">
+          {events.map((e) => (
+            <Link
+              key={e.id}
+              href={`/event/${e.id}`}
+              className="rounded-xl border bg-white p-5 shadow-sm hover:shadow"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="space-y-1">
+                  <div className="text-sm text-gray-500">{e.id}</div>
+                  <div className="text-base font-semibold">{e.title}</div>
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    <Badge text={e.type} />
+                    <Badge text={`Region: ${e.region}`} />
+                    <Badge text={`Severity: ${e.severity}`} />
+                    <Badge text={`Status: ${e.status}`} />
+                  </div>
                 </div>
-              </div>
 
-              <div className="text-sm text-gray-500">{e.createdAt}</div>
-            </div>
-          </Link>
-        ))}
+                <div className="text-sm text-gray-500">{e.createdAt}</div>
+              </div>
+            </Link>
+          ))}
+        </div>
       </div>
-    </div>
+    </AuthGate>
   );
 }
