@@ -20,7 +20,7 @@ export default function RootLayout({
             <div className="flex items-center gap-3">
               <div className="h-9 w-9 rounded-lg bg-gray-900" />
               <div>
-                <div className="text-sm font-semibold leading-4">AltPart AI</div>
+                <div className="text-sm font-semibold leading-4">Project Name</div>
                 <div className="text-xs text-gray-500">
                   Resilience agent for BOM substitutes
                 </div>

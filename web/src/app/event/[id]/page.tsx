@@ -1,5 +1,6 @@
 import Link from "next/link";
 import AuthGate from "@/components/AuthGate";
+import AgentRunner from "./AgentRunner";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -46,10 +47,7 @@ export default async function EventPage({ params }: Params) {
               Impact mapping → alternate parts → trade-off plans → actions.
             </p>
           </div>
-
-          <button className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:opacity-90">
-            Run agent (stub)
-          </button>
+          <AgentRunner eventId={eventId} />
         </div>
 
         <div className="grid gap-4 md:grid-cols-2">

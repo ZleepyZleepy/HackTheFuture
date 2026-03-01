@@ -22,7 +22,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   if (checking) {
     return (
       <div className="rounded-xl border bg-white p-6 shadow-sm text-sm text-gray-600">
-        Checking session…
+        Checking mk…
       </div>
     );
   }
