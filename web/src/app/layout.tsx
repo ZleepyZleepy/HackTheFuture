@@ -1,5 +1,6 @@
 import "./globals.css";
 import Link from "next/link";
+import UserMenu from "@/components/UserMenu";
 
 export const metadata = {
   title: "Project Name",
@@ -37,6 +38,7 @@ export default function RootLayout({
                 Memory
               </Link>
             </nav>
+            <UserMenu />
           </div>
         </header>
 
