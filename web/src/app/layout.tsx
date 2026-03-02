@@ -3,8 +3,8 @@ import Link from "next/link";
 import UserMenu from "@/components/UserMenu";
 
 export const metadata = {
-  title: "Project Name",
-  description: "BOM Substitution & Re-Qualification Resilience Agent",
+  title: "Vast",
+  description: "Supply chain resilience agent for BOM substitutes",
 };
 
 export default function RootLayout({
@@ -20,10 +20,7 @@ export default function RootLayout({
             <div className="flex items-center gap-3">
               <div className="h-9 w-9 rounded-lg bg-gray-900" />
               <div>
-                <div className="text-sm font-semibold leading-4">Project Name</div>
-                <div className="text-xs text-gray-500">
-                  Resilience agent for BOM substitutes
-                </div>
+                <div className="text-sm font-semibold leading-4">Vast</div>
               </div>
             </div>
 

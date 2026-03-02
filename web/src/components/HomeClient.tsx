@@ -49,7 +49,7 @@ async function handleEmailSignUp() {
   return (
     <div className="space-y-6">
       <div className="rounded-xl border bg-white p-6 shadow-sm">
-        <h1 className="text-2xl font-semibold">AltPart AI</h1>
+        <h1 className="text-2xl font-semibold">Vast</h1>
         <p className="mt-2 text-sm text-gray-600">
           Prevent line-stops by mapping disruptions → BOM risk → approved alternates → actions.
         </p>
