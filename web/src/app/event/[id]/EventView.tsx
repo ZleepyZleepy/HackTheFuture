@@ -7,7 +7,7 @@ import { saveAgentRun } from "@/lib/runs";
 import { collection, doc, getDoc, getDocs, limit, orderBy, query, where } from "firebase/firestore";
 import { db, auth } from "@/lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
-import { listDecisions, saveDecision } from "@/lib/decisions";
+import { listDecisions, saveDecision, cancelDecision } from "@/lib/decisions";
 
 type AgentPayload = {
   eventId: string;
@@ -48,6 +48,7 @@ export default function EventView({
   >([]);
   const [decisionBusy, setDecisionBusy] = useState<string | null>(null);
   const [decisionError, setDecisionError] = useState<string | null>(null);
+  const approvedParts = new Set(decisionHistory.map((d) => d.decision.part));
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (u) => {
@@ -261,10 +262,10 @@ export default function EventView({
                         setDecisionBusy(null);
                       }
                     }}
-                    disabled={decisionBusy === a.part || !uid}
+                    disabled={decisionBusy === a.part || !uid || approvedParts.has(a.part)}
                     className="rounded-lg border bg-white px-3 py-1 text-xs hover:bg-gray-50 disabled:opacity-60"
                   >
-                    {decisionBusy === a.part ? "Saving..." : "Approve"}
+                    {approvedParts.has(a.part) ? "Approved" : decisionBusy === a.part ? "Saving..." : "Approve"}
                   </button>
                 </div>
               </div>
@@ -290,8 +291,37 @@ export default function EventView({
                   <div className="font-medium">{d.decision.part} ({Math.round(d.decision.score * 100)}%)</div>
                   <div className="text-xs text-gray-600">{d.decision.notes}</div>
                 </div>
-                <div className="text-xs text-gray-500">
-                  {d.createdAt ? d.createdAt.toLocaleString() : "syncing…"}
+                <div className="flex items-center gap-2">
+                  <div className="text-xs text-gray-500">
+                    {d.createdAt ? d.createdAt.toLocaleString() : "syncing…"}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (!uid) return;
+
+                      setDecisionError(null);
+                      setDecisionBusy(d.decision.part);
+
+                      try {
+                        await cancelDecision(eventId, d.decision.part);
+                        await loadDecisions(uid);
+
+                        setTimeout(() => {
+                          loadDecisions(uid).catch(console.error);
+                        }, 600);
+                      } catch (e: any) {
+                        setDecisionError(e?.message ?? "Failed to cancel decision");
+                      } finally {
+                        setDecisionBusy(null);
+                      }
+                    }}
+                    disabled={decisionBusy === d.decision.part || !uid}
+                    className="rounded-lg border bg-white px-3 py-1 text-xs hover:bg-gray-50 disabled:opacity-60"
+                  >
+                    {decisionBusy === d.decision.part ? "Cancelling..." : "Cancel"}
+                  </button>
                 </div>
               </div>
             ))}

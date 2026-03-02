@@ -1,5 +1,9 @@
-﻿import { addDoc, collection, getDocs, limit, query, serverTimestamp, where } from "firebase/firestore";
+﻿import { collection, deleteDoc, doc, getDocs, limit, query, serverTimestamp, setDoc, where } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
+
+function decisionDocId(uid: string, part: string) {
+  return `${uid}__${encodeURIComponent(part)}`;
+}
 
 export type Decision = {
   part: string;
@@ -11,16 +15,20 @@ export async function saveDecision(eventId: string, decision: Decision, context?
   const user = auth.currentUser;
   if (!user) throw new Error("Not signed in");
 
-  const ref = collection(db, "events", eventId, "decisions");
-  const docRef = await addDoc(ref, {
-    uid: user.uid,
-    isAnonymous: user.isAnonymous,
-    decision,
-    context: context ?? null,
-    createdAt: serverTimestamp(),
-  });
+  const id = decisionDocId(user.uid, decision.part);
 
-  return docRef.id;
+  await setDoc(
+    doc(db, "events", eventId, "decisions", id),
+    {
+      uid: user.uid,
+      createdAt: serverTimestamp(),
+      decision,
+      context,
+    },
+    { merge: true }
+  );
+
+  return id;
 }
 
 export async function listDecisions(eventId: string, uid: string) {
@@ -41,4 +49,12 @@ export async function listDecisions(eventId: string, uid: string) {
       decision: data.decision as Decision,
     };
   });
+}
+
+export async function cancelDecision(eventId: string, part: string) {
+  const user = auth.currentUser;
+  if (!user) throw new Error("Not signed in");
+
+  const id = decisionDocId(user.uid, part);
+  await deleteDoc(doc(db, "events", eventId, "decisions", id));
 }
