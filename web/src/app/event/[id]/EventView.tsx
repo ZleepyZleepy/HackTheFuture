@@ -2,8 +2,10 @@
 
 import Link from "next/link";
 import AgentRunner from "./AgentRunner";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { saveAgentRun } from "@/lib/runs";
+import { collection, getDocs, limit, orderBy, query } from "firebase/firestore";
+import { db } from "@/lib/firebase";
 
 type AgentPayload = {
   eventId: string;
@@ -32,6 +34,39 @@ export default function EventView({
   const [actions, setActions] = useState(initialActions);
   const [trace, setTrace] = useState<string[] | null>(null);
   const [alternates, setAlternates] = useState<AgentPayload["alternates"]>([]);
+  const [runHistory, setRunHistory] = useState<
+    { id: string; ranAt?: Date; topPart?: string; revenueAtRiskUsd?: number }[]
+  >([]);
+
+  useEffect(() => {
+    loadRuns().catch(console.error);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [eventId]);
+
+  async function loadRuns() {
+    const runsRef = collection(db, "events", eventId, "runs");
+    const q = query(runsRef, orderBy("createdAt", "desc"), limit(10));
+    const snap = await getDocs(q);
+
+    const rows = snap.docs.map((d) => {
+      const data = d.data() as any;
+      const payload = data.payload as any;
+
+      const ranAt =
+        data.createdAt && typeof data.createdAt.toDate === "function"
+          ? data.createdAt.toDate()
+          : undefined;
+
+      return {
+        id: d.id,
+        ranAt,
+        topPart: payload?.impact?.topPart,
+        revenueAtRiskUsd: payload?.impact?.revenueAtRiskUsd,
+      };
+    });
+
+    setRunHistory(rows);
+  }
 
   return (
     <div className="space-y-6">
@@ -60,6 +95,8 @@ export default function EventView({
             saveAgentRun(eventId, payload).catch((e) =>
               console.error("saveAgentRun failed:", e)
             );
+
+            loadRuns().catch(console.error);
           }}
         />
       </div>
@@ -136,7 +173,39 @@ export default function EventView({
             Click <span className="font-medium">Run agent</span> to generate alternates.
             </p>
         )}
-        </section>
+      </section>
+      
+      <section className="rounded-xl border bg-white p-5 shadow-sm">
+        <h2 className="text-lg font-semibold">Run history</h2>
+
+        {runHistory.length ? (
+          <div className="mt-4 overflow-hidden rounded-lg border">
+            <div className="grid grid-cols-12 bg-gray-50 px-4 py-2 text-xs font-medium text-gray-600">
+              <div className="col-span-5">Time</div>
+              <div className="col-span-4">Top part</div>
+              <div className="col-span-3">Revenue at risk</div>
+            </div>
+
+            {runHistory.map((r) => (
+              <div key={r.id} className="grid grid-cols-12 border-t px-4 py-3 text-sm">
+                <div className="col-span-5 text-gray-600">
+                  {r.ranAt ? r.ranAt.toLocaleString() : "—"}
+                </div>
+                <div className="col-span-4 font-medium">{r.topPart ?? "—"}</div>
+                <div className="col-span-3">
+                  {typeof r.revenueAtRiskUsd === "number"
+                    ? `$${r.revenueAtRiskUsd.toLocaleString()}`
+                    : "—"}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="mt-2 text-sm text-gray-600">
+            No runs saved yet — click <span className="font-medium">Run agent</span>.
+          </p>
+        )}
+    </section>
 
       <section className="rounded-xl border bg-white p-5 shadow-sm">
         <h2 className="text-lg font-semibold">Reasoning trace</h2>
