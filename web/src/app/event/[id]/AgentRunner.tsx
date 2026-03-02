@@ -15,7 +15,14 @@ type AgentPayload = {
   reasoningTrace: string[];
 };
 
-export default function RunAgentButton({ eventId }: { eventId: string }) {
+export default function AgentRunner({
+  eventId,
+  onDone,
+}: {
+  eventId: string;
+  onDone?: (payload: AgentPayload) => void;
+}) {
+
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<AgentPayload | null>(null);
@@ -34,6 +41,8 @@ export default function RunAgentButton({ eventId }: { eventId: string }) {
 
       const data = (await res.json()) as AgentPayload;
       setResult(data);
+      onDone?.(data);
+    
     } catch (e: any) {
       setError(e?.message ?? "Failed to run agent");
     } finally {
@@ -52,16 +61,6 @@ export default function RunAgentButton({ eventId }: { eventId: string }) {
         </button>
 
         {error ? <div className="text-xs text-red-600">{error}</div> : null}
-
-        {result ? (
-        <div className="w-[320px] rounded-lg border bg-white p-3 text-xs text-gray-700">
-            <div className="font-medium">Agent output</div>
-            <div className="mt-1 text-gray-600">Top part: {result.impact.topPart}</div>
-            <div className="text-gray-600">
-            Revenue at risk: ${result.impact.revenueAtRiskUsd.toLocaleString()}
-            </div>
-        </div>
-        ) : null}
     </div>
     );
 }
