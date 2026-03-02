@@ -3,6 +3,7 @@
 import Link from "next/link";
 import AgentRunner from "./AgentRunner";
 import { useState } from "react";
+import { saveAgentRun } from "@/lib/runs";
 
 type AgentPayload = {
   eventId: string;
@@ -55,6 +56,10 @@ export default function EventView({
             setActions(payload.actions);
             setTrace(payload.reasoningTrace);
             setAlternates(payload.alternates);
+            
+            saveAgentRun(eventId, payload).catch((e) =>
+              console.error("saveAgentRun failed:", e)
+            );
           }}
         />
       </div>
