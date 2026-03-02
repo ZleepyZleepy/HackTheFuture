@@ -7,6 +7,7 @@ import { saveAgentRun } from "@/lib/runs";
 import { collection, doc, getDoc, getDocs, limit, orderBy, query, where } from "firebase/firestore";
 import { db, auth } from "@/lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
+import { listDecisions, saveDecision } from "@/lib/decisions";
 
 type AgentPayload = {
   eventId: string;
@@ -42,6 +43,11 @@ export default function EventView({
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [currentRunId, setCurrentRunId] = useState<number | null>(null);
   const [uid, setUid] = useState<string | null>(null);
+  const [decisionHistory, setDecisionHistory] = useState<
+    { id: string; createdAt?: Date; decision: { part: string; score: number; notes: string } }[]
+  >([]);
+  const [decisionBusy, setDecisionBusy] = useState<string | null>(null);
+  const [decisionError, setDecisionError] = useState<string | null>(null);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (u) => {
@@ -56,6 +62,7 @@ export default function EventView({
       return;
     }
     loadRuns(uid).catch(console.error);
+    loadDecisions(uid).catch(console.error);
   }, [eventId, uid]);
 
   async function loadRun(runId: string) {
@@ -71,6 +78,12 @@ export default function EventView({
     setAlternates(payload?.alternates ?? []);
     setTrace(payload?.reasoningTrace ?? null);
     setSelectedRunId(runId);
+  }
+
+  async function loadDecisions(uid: string) {
+    const rows = await listDecisions(eventId, uid);
+    rows.sort((a, b) => (b.createdAt?.getTime() ?? 0) - (a.createdAt?.getTime() ?? 0));
+    setDecisionHistory(rows);
   }
 
   async function loadRuns(uid: string) {
@@ -206,14 +219,55 @@ export default function EventView({
             </div>
 
             {alternates.map((a) => (
-                <div
+              <div
                 key={a.part}
-                className="grid grid-cols-12 gap-2 border-t px-4 py-3 text-sm"
-                >
+                className="grid grid-cols-12 gap-2 border-t px-4 py-3 text-sm items-center"
+              >
                 <div className="col-span-3 font-medium">{a.part}</div>
-                <div className="col-span-2">{Math.round(a.score * 100)}%</div>
-                <div className="col-span-7 text-gray-600">{a.notes}</div>
+
+                <div className="col-span-2">
+                  {Math.round(a.score * 100)}%
                 </div>
+
+                <div className="col-span-6 text-gray-600">
+                  {a.notes}
+                </div>
+
+                <div className="col-span-1 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (!uid) return;
+
+                      setDecisionError(null);
+                      setDecisionBusy(a.part);
+
+                      try {
+                        await saveDecision(
+                          eventId,
+                          { part: a.part, score: a.score, notes: a.notes },
+                          { impact, sourceRunDocId: selectedRunId, sourceRunId: currentRunId }
+                        );
+
+                        await loadDecisions(uid);
+
+                        setTimeout(() => {
+                          loadDecisions(uid).catch(console.error);
+                        }, 600);
+
+                      } catch (e: any) {
+                        setDecisionError(e?.message ?? "Failed to save decision");
+                      } finally {
+                        setDecisionBusy(null);
+                      }
+                    }}
+                    disabled={decisionBusy === a.part || !uid}
+                    className="rounded-lg border bg-white px-3 py-1 text-xs hover:bg-gray-50 disabled:opacity-60"
+                  >
+                    {decisionBusy === a.part ? "Saving..." : "Approve"}
+                  </button>
+                </div>
+              </div>
             ))}
             </div>
         ) : (
@@ -223,6 +277,30 @@ export default function EventView({
         )}
       </section>
       
+      <section className="rounded-xl border bg-white p-5 shadow-sm">
+        <h2 className="text-lg font-semibold">Approved decisions</h2>
+
+        {decisionError ? <div className="mt-2 text-sm text-red-600">{decisionError}</div> : null}
+
+        {decisionHistory.length ? (
+          <div className="mt-4 space-y-2">
+            {decisionHistory.map((d) => (
+              <div key={d.id} className="flex items-center justify-between rounded-lg border bg-gray-50 px-4 py-3 text-sm">
+                <div>
+                  <div className="font-medium">{d.decision.part} ({Math.round(d.decision.score * 100)}%)</div>
+                  <div className="text-xs text-gray-600">{d.decision.notes}</div>
+                </div>
+                <div className="text-xs text-gray-500">
+                  {d.createdAt ? d.createdAt.toLocaleString() : "syncing…"}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="mt-2 text-sm text-gray-600">No approvals yet — click Approve on an alternate.</p>
+        )}
+      </section>
+
       <section className="rounded-xl border bg-white p-5 shadow-sm">
         <h2 className="text-lg font-semibold">Run history</h2>
 
