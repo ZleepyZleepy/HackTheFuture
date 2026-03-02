@@ -12,6 +12,7 @@ type AgentPayload = {
     revenueAtRiskUsd: number;
   };
   actions: { title: string; status: string }[];
+  alternates: { part: string; score: number; notes: string }[];
   reasoningTrace: string[];
 };
 

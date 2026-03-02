@@ -14,6 +14,7 @@ type AgentPayload = {
     revenueAtRiskUsd: number;
   };
   actions: { title: string; status: string }[];
+  alternates: { part: string; score: number; notes: string }[];
   reasoningTrace: string[];
 };
 
@@ -29,6 +30,7 @@ export default function EventView({
   const [impact, setImpact] = useState(initialImpact);
   const [actions, setActions] = useState(initialActions);
   const [trace, setTrace] = useState<string[] | null>(null);
+  const [alternates, setAlternates] = useState<AgentPayload["alternates"]>([]);
 
   return (
     <div className="space-y-6">
@@ -52,6 +54,7 @@ export default function EventView({
             setImpact(payload.impact);
             setActions(payload.actions);
             setTrace(payload.reasoningTrace);
+            setAlternates(payload.alternates);
           }}
         />
       </div>
@@ -100,6 +103,35 @@ export default function EventView({
           </div>
         </section>
       </div>
+      
+      <section className="rounded-xl border bg-white p-5 shadow-sm">
+        <h2 className="text-lg font-semibold">Recommended alternates</h2>
+
+        {alternates.length ? (
+            <div className="mt-4 overflow-hidden rounded-lg border">
+            <div className="grid grid-cols-12 bg-gray-50 px-4 py-2 text-xs font-medium text-gray-600">
+                <div className="col-span-3">Part</div>
+                <div className="col-span-2">Score</div>
+                <div className="col-span-7">Notes</div>
+            </div>
+
+            {alternates.map((a) => (
+                <div
+                key={a.part}
+                className="grid grid-cols-12 gap-2 border-t px-4 py-3 text-sm"
+                >
+                <div className="col-span-3 font-medium">{a.part}</div>
+                <div className="col-span-2">{Math.round(a.score * 100)}%</div>
+                <div className="col-span-7 text-gray-600">{a.notes}</div>
+                </div>
+            ))}
+            </div>
+        ) : (
+            <p className="mt-2 text-sm text-gray-600">
+            Click <span className="font-medium">Run agent</span> to generate alternates.
+            </p>
+        )}
+        </section>
 
       <section className="rounded-xl border bg-white p-5 shadow-sm">
         <h2 className="text-lg font-semibold">Reasoning trace</h2>
