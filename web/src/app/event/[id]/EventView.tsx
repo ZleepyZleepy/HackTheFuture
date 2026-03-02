@@ -4,8 +4,9 @@ import Link from "next/link";
 import AgentRunner from "./AgentRunner";
 import { useEffect, useState } from "react";
 import { saveAgentRun } from "@/lib/runs";
-import { collection, getDocs, limit, orderBy, query } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { collection, doc, getDoc, getDocs, limit, orderBy, query, where } from "firebase/firestore";
+import { db, auth } from "@/lib/firebase";
+import { onAuthStateChanged } from "firebase/auth";
 
 type AgentPayload = {
   eventId: string;
@@ -17,6 +18,7 @@ type AgentPayload = {
     revenueAtRiskUsd: number;
   };
   actions: { title: string; status: string }[];
+  runId: number;
   alternates: { part: string; score: number; notes: string }[];
   reasoningTrace: string[];
 };
@@ -37,15 +39,50 @@ export default function EventView({
   const [runHistory, setRunHistory] = useState<
     { id: string; ranAt?: Date; topPart?: string; revenueAtRiskUsd?: number }[]
   >([]);
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  const [currentRunId, setCurrentRunId] = useState<number | null>(null);
+  const [uid, setUid] = useState<string | null>(null);
 
   useEffect(() => {
-    loadRuns().catch(console.error);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [eventId]);
+    const unsub = onAuthStateChanged(auth, (u) => {
+      setUid(u?.uid ?? null);
+    });
+    return () => unsub();
+  }, []);
 
-  async function loadRuns() {
+  useEffect(() => {
+    if (!uid) {
+      setRunHistory([]);
+      return;
+    }
+    loadRuns(uid).catch(console.error);
+  }, [eventId, uid]);
+
+  async function loadRun(runId: string) {
+    const runRef = doc(db, "events", eventId, "runs", runId);
+    const snap = await getDoc(runRef);
+    if (!snap.exists()) return;
+
+    const data = snap.data() as any;
+    const payload = data.payload as any;
+    setCurrentRunId(typeof payload?.runId === "number" ? payload.runId : null);
+    setImpact(payload?.impact ?? initialImpact);
+    setActions(payload?.actions ?? initialActions);
+    setAlternates(payload?.alternates ?? []);
+    setTrace(payload?.reasoningTrace ?? null);
+    setSelectedRunId(runId);
+  }
+
+  async function loadRuns(uid: string) {
     const runsRef = collection(db, "events", eventId, "runs");
-    const q = query(runsRef, orderBy("createdAt", "desc"), limit(10));
+
+    const q = query(
+      runsRef,
+      where("uid", "==", uid),
+      orderBy("createdAt", "desc"),
+      limit(10)
+    );
+
     const snap = await getDocs(q);
 
     const rows = snap.docs.map((d) => {
@@ -79,6 +116,9 @@ export default function EventView({
             / Event
           </div>
           <h1 className="text-2xl font-semibold">Event {eventId}</h1>
+          {currentRunId !== null ? (
+            <div className="text-xs text-gray-500">Viewing run #{currentRunId}</div>
+          ) : null}
           <p className="text-sm text-gray-600">
             Impact mapping → alternate parts → trade-off plans → actions.
           </p>
@@ -91,12 +131,20 @@ export default function EventView({
             setActions(payload.actions);
             setTrace(payload.reasoningTrace);
             setAlternates(payload.alternates);
-            
-            saveAgentRun(eventId, payload).catch((e) =>
-              console.error("saveAgentRun failed:", e)
-            );
+            setCurrentRunId(typeof payload.runId === "number" ? payload.runId : null);
+            saveAgentRun(eventId, payload)
+              .then(() => {
+                if (!uid) return;
 
-            loadRuns().catch(console.error);
+                // First refresh immediately
+                loadRuns(uid).catch(console.error);
+
+                // Then refresh again shortly after so serverTimestamp resolves
+                setTimeout(() => {
+                  loadRuns(uid).catch(console.error);
+                }, 600);
+              })
+              .catch((e) => console.error("saveAgentRun failed:", e));
           }}
         />
       </div>
@@ -187,7 +235,15 @@ export default function EventView({
             </div>
 
             {runHistory.map((r) => (
-              <div key={r.id} className="grid grid-cols-12 border-t px-4 py-3 text-sm">
+              <button
+                key={r.id}
+                type="button"
+                onClick={() => loadRun(r.id).catch(console.error)}
+                className={[
+                  "grid w-full grid-cols-12 border-t px-4 py-3 text-left text-sm hover:bg-gray-50",
+                  selectedRunId === r.id ? "bg-gray-50" : "",
+                ].join(" ")}
+              >
                 <div className="col-span-5 text-gray-600">
                   {r.ranAt ? r.ranAt.toLocaleString() : "—"}
                 </div>
@@ -197,7 +253,7 @@ export default function EventView({
                     ? `$${r.revenueAtRiskUsd.toLocaleString()}`
                     : "—"}
                 </div>
-              </div>
+              </button>
             ))}
           </div>
         ) : (

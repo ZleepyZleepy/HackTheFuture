@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { collection, getDocs, limit, orderBy, query } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { collection, getDocs, limit, orderBy, query, where } from "firebase/firestore";
+import { db, auth } from "@/lib/firebase";
 
 export type DisruptionEvent = {
   id: string;
@@ -42,7 +42,15 @@ export default function RadarView({ events }: { events: DisruptionEvent[] }) {
       const pairs = await Promise.all(
         events.map(async (e) => {
           const runsRef = collection(db, "events", e.id, "runs");
-          const q = query(runsRef, orderBy("createdAt", "desc"), limit(1));
+          const uid = auth.currentUser?.uid;
+          if (!uid) return [e.id, {}] as const;
+
+          const q = query(
+            runsRef,
+            where("uid", "==", uid),
+            orderBy("createdAt", "desc"),
+            limit(1)
+          );
           const snap = await getDocs(q);
 
           if (snap.empty) return [e.id, {}] as const;

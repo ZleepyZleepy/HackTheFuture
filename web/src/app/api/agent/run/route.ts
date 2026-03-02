@@ -1,6 +1,9 @@
-﻿export async function POST(req: Request) {
+﻿let runCounter = 0;
+
+export async function POST(req: Request) {
   const body = (await req.json().catch(() => ({}))) as { eventId?: string };
   const eventId = body.eventId ?? "evt_unknown";
+  runCounter += 1;
 
   // Mock “agent” output (deterministic for demo)
   const payload = {
@@ -21,6 +24,8 @@
             lineStopInDays: 14,
             revenueAtRiskUsd: 180000,
           },
+
+    runId: runCounter,
 
     alternates: [
       {
