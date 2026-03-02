@@ -1,4 +1,4 @@
-﻿import { addDoc, collection, serverTimestamp } from "firebase/firestore";
+import { addDoc, collection, serverTimestamp } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 
 export async function saveAgentRun(eventId: string, payload: unknown) {
