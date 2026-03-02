@@ -6,12 +6,14 @@ import { loadMemory, MemoryRow } from "@/lib/memory";
 import AuthGate from "@/components/AuthGate";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth } from "@/lib/firebase";
+import { cancelDecision } from "@/lib/decisions";
 
 export default function MemoryView() {
   const [rows, setRows] = useState<MemoryRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [uid, setUid] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (u) => {
@@ -65,7 +67,7 @@ export default function MemoryView() {
               <div className="col-span-2">Event</div>
               <div className="col-span-3">Part</div>
               <div className="col-span-2">Score</div>
-              <div className="col-span-2">Open</div>
+              <div className="col-span-2">Actions</div>
             </div>
 
             {rows.map((r) => (
@@ -76,13 +78,37 @@ export default function MemoryView() {
                 <div className="col-span-2 font-medium">{r.eventId}</div>
                 <div className="col-span-3">{r.part}</div>
                 <div className="col-span-2">{Math.round(r.score * 100)}%</div>
-                <div className="col-span-2">
+                <div className="col-span-2 flex items-center gap-2">
                   <Link
                     className="rounded-lg border bg-white px-3 py-1 text-xs hover:bg-gray-50"
                     href={`/event/${r.eventId}`}
                   >
                     View event
                   </Link>
+
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (!uid) return;
+
+                      setErr(null);
+                      setBusyId(r.decisionId);
+
+                      try {
+                        await cancelDecision(r.eventId, r.part);
+                        const updated = await loadMemory(uid);
+                        setRows(updated);
+                      } catch (e: any) {
+                        setErr(e?.message ?? "Failed to cancel decision");
+                      } finally {
+                        setBusyId(null);
+                      }
+                    }}
+                    disabled={!uid || busyId === r.decisionId}
+                    className="rounded-lg border bg-white px-3 py-1 text-xs hover:bg-gray-50 disabled:opacity-60"
+                  >
+                    {busyId === r.decisionId ? "Cancelling..." : "Cancel"}
+                  </button>
                 </div>
               </div>
             ))}
