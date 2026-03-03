@@ -34,6 +34,9 @@ export default function RootLayout({
               <Link className="hover:underline" href="/memory">
                 Memory
               </Link>
+              <Link className="hover:underline" href="/bom">
+                BOM
+              </Link>
             </nav>
             <UserMenu />
           </div>
