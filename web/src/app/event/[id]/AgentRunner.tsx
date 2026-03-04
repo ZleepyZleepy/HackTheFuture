@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { loadBomFull } from "@/lib/bom";
 
 type AgentPayload = {
   eventId: string;
@@ -15,6 +16,10 @@ type AgentPayload = {
   runId: number;
   alternates: { part: string; score: number; notes: string }[];
   reasoningTrace: string[];
+
+  // extra optional fields from API (safe if unused)
+  affectedCount?: number;
+  affectedParts?: string[];
 };
 
 export default function AgentRunner({
@@ -24,27 +29,34 @@ export default function AgentRunner({
   eventId: string;
   onDone?: (payload: AgentPayload) => void;
 }) {
-
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<AgentPayload | null>(null);
 
   async function run() {
     setError(null);
     setBusy(true);
+
     try {
+      // Load BOM rows from Firestore (client is already authed via AuthGate)
+      let bomRows: any[] = [];
+      try {
+        const loaded = await loadBomFull();
+        bomRows = Array.isArray(loaded?.rows) ? loaded.rows.slice(0, 1000) : [];
+      } catch {
+        // Don’t fail the run if BOM isn’t available yet
+        bomRows = [];
+      }
+
       const res = await fetch("/api/agent/run", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ eventId }),
+        body: JSON.stringify({ eventId, bomRows }),
       });
 
       if (!res.ok) throw new Error(`Request failed (${res.status})`);
 
       const data = (await res.json()) as AgentPayload;
-      setResult(data);
       onDone?.(data);
-    
     } catch (e: any) {
       setError(e?.message ?? "Failed to run agent");
     } finally {
@@ -52,17 +64,17 @@ export default function AgentRunner({
     }
   }
 
-    return (
+  return (
     <div className="flex flex-col items-end gap-2">
-        <button
+      <button
         onClick={run}
         disabled={busy}
         className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60"
-        >
+      >
         {busy ? "Running..." : "Run agent"}
-        </button>
+      </button>
 
-        {error ? <div className="text-xs text-red-600">{error}</div> : null}
+      {error ? <div className="text-xs text-red-600">{error}</div> : null}
     </div>
-    );
+  );
 }
