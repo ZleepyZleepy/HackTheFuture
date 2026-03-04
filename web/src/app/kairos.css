@@ -61,14 +61,24 @@ body{
     margin:0;
     font-family:var(--font-family-base);
     color:var(--color-text);
-    background:var(--color-surface);
+    background:var(--color-bg);
 }
 
 /* ========= Layout ========= */
+.kairos-fullbleed{
+  width:100vw;
+  position:relative;
+  left:50%;
+  right:50%;
+  margin-left:-50vw;
+  margin-right:-50vw;
+}
+
 .dashboard{
-    max-width:1440px;
-    min-height:1070px;
-    margin:0 auto;
+    width:100%;
+    max-width:none;
+    margin:0;
+    min-height:100vh;
     display:grid;
     grid-template-columns:240px 1fr;
     background:var(--color-surface);
@@ -79,9 +89,11 @@ body{
 /* ========= Sidebar ========= */
 .sidebar{
     background:var(--color-surface);
-    height:1070px;
     border-right:1px solid var(--color-border);
-    position:relative;
+    position: sticky;
+    top: 0;
+    height: 100vh;     /* lock it */
+    overflow: hidden;  /* no scroll inside sidebar */
 }
 
 .sidebar__logo{
@@ -116,6 +128,20 @@ body{
 .sidebar__item{
     height:50px;
     position:relative;
+}
+
+/* Sidebar hover */
+.sidebar__item:not(.sidebar__item--active) .sidebar__link:hover{
+  background:#f1f4f9;
+  border-radius:var(--radius-6);
+}
+
+/* Make pill/indicator not purely blue everywhere */
+:root{
+  --color-primary:#3b82f6;   /* blue */
+  --color-success:#22c55e;   /* green */
+  --color-warning:#f59e0b;   /* amber */
+  --color-danger:#ef4444;    /* red */
 }
 
 .sidebar__link{
@@ -206,9 +232,9 @@ body{
 
 /* ========= Main ========= */
 .main{
-    background:var(--color-bg);
-    position:relative;
-    min-height:1070px;
+  height: 100vh;
+  overflow: auto; /* scroll the content area, not the whole page */
+  background: var(--color-bg);
 }
 
 /* Top separator line (under topbar) */
@@ -860,4 +886,45 @@ body{
     grid-template-columns:1fr;
     gap:16px;
     }
+}
+
+/* =========================
+   Kairos full-screen overrides
+   (fixes: only sidebar visible / only content visible / edge gaps)
+========================= */
+
+.dashboard{
+  width:100vw !important;
+  max-width:none !important;
+  height:100vh !important;
+  min-height:100vh !important;
+  margin:0 !important;
+  display:flex !important;      /* override grid */
+  overflow:hidden !important;   /* no outer scrolling */
+}
+
+.sidebar{
+  position:sticky !important;
+  top:0 !important;
+  height:100vh !important;
+  flex:0 0 240px !important;    /* fixed sidebar width */
+  overflow:hidden !important;   /* sidebar doesn't scroll */
+  border-right:1px solid var(--color-border);
+}
+
+.main{
+  flex:1 1 auto !important;
+  min-width:0 !important;       /* IMPORTANT: allows content to render instead of being pushed off-screen */
+  height:100vh !important;
+  overflow:auto !important;     /* only main scrolls */
+  background:var(--color-bg);
+}
+
+.content{
+  min-width:0 !important;
+}
+
+/* remove the design's top separator line if it causes weird clipping */
+.main::before{
+  display:none !important;
 }

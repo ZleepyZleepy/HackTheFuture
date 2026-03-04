@@ -137,6 +137,7 @@ export async function POST(req: Request) {
 
   const body = (await req.json().catch(() => ({}))) as {
     rows?: AgDataRow[];
+    insiderSources?: { title: string; text: string }[];
     companyPolicy?: {
       stockoutEscalatePct?: number;
       costShockEscalateUsd?: number;
@@ -144,6 +145,16 @@ export async function POST(req: Request) {
   };
 
   const rows = Array.isArray(body.rows) ? body.rows : [];
+
+  const insider = Array.isArray(body.insiderSources) ? body.insiderSources : [];
+  const insiderBlock =
+    insider.length > 0
+      ? insider
+          .slice(0, 6)
+          .map((s, i) => `(${i + 1}) ${s.title}\n${s.text}`)
+          .join("\n\n---\n\n")
+      : "none";
+
   const policy = {
     stockoutEscalatePct: body.companyPolicy?.stockoutEscalatePct ?? 60,
     costShockEscalateUsd: body.companyPolicy?.costShockEscalateUsd ?? 50000,
@@ -159,6 +170,17 @@ You are Kairos, an agriculture supply chain resilience agent.
 You must produce JSON ONLY that matches the schema.
 Be specific and contextual to the provided data.
 
+NEVER OUTPUT ANY API KEYS, SECRETS, OR CREDENTIALS. 
+
+Writing style rules:
+- Be specific to the provided data (mention real product + supplier names from topExposure).
+- No generic filler and uncertainty. No “it may be affected” vibes.
+- Avoid run-on sentences. Use concise lines.
+- Use emojis sparingly but clearly (1 per section max).
+- Summary must be 1–2 sentences max.
+- reasoningTrace must be bullet-like lines.
+- If you don't have enough data to fill a field, fabricate some reasonable data.
+
 Company policy thresholds:
 - Escalate if stockoutProbabilityPct >= ${policy.stockoutEscalatePct}
 - Escalate if exposureUsd (proxy for cost shock / margin risk) >= ${policy.costShockEscalateUsd}
@@ -171,6 +193,9 @@ Data summary:
 - stockoutProbabilityPct=${metrics.stockoutProbabilityPct}
 - topExposure items (product, supplier, exposureUsd):
 ${metrics.topExposure.map((x) => `  - ${x.product} | ${x.supplier} | ${Math.round(x.exposure)}`).join("\n")}
+Insider sources (non-public): ${insiderBlock}
+Hard requirement:
+- Every keyRisk must cite at least ONE number from metrics and ONE product/supplier example.
 
 Make keyRisks cover:
 1) Critical input shortage / price shock
@@ -183,7 +208,8 @@ Recommendations must include:
 - one "approval packet" suggestion (what to send to humans)
 
 Use numbers from metrics in reasoningTrace.
-`;
+`
+;
 
   const responseJsonSchema = {
     type: "object",
