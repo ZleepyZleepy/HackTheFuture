@@ -178,3 +178,78 @@ export default function Page() {
     </div>
   );
 }
+
+
+
+// "use client";
+
+// import Link from "next/link";
+// import { useKairosData } from "@/components/kairos/useKairosData";
+// import { useKairosSignals } from "@/components/kairos/useKairosSignals";
+
+// export default function KairosDashboardPage() {
+//   const { meta, rows, insiderCount } = useKairosData();
+//   const { signals, updating, error, updateSignals } = useKairosSignals(rows);
+
+//   return (
+//     <div className="space-y-4">
+//       <div className="flex items-start justify-between gap-4">
+//         <div>
+//           <h1 className="text-2xl font-bold">🌾 Kairos Dashboard</h1>
+
+//           <div className="mt-1 flex flex-wrap gap-6 text-sm text-gray-600">
+//             {meta?.sourceFileName ? (
+//               <span>
+//                 📄 Dataset: <span className="font-medium">{meta.sourceFileName}</span> ·{" "}
+//                 <span className="font-medium">{meta.count ?? 0}</span> rows
+//               </span>
+//             ) : (
+//               <span>📄 Dataset: —</span>
+//             )}
+
+//             <span>
+//               🕵️ Insider Sources: <span className="font-medium">{insiderCount}</span>{" "}
+//               <Link href="/kairos/sources" className="hover:underline">
+//                 (manage)
+//               </Link>
+//             </span>
+//           </div>
+//         </div>
+
+//         <button
+//           onClick={updateSignals}
+//           disabled={updating}
+//           className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+//         >
+//           {updating ? "Updating..." : "🚀 Update agent analysis"}
+//         </button>
+//       </div>
+
+//       {error ? <div className="text-sm text-red-600">{error}</div> : null}
+
+//       <div className="grid gap-4 md:grid-cols-3">
+//         <div className="rounded-xl bg-white p-4 shadow-sm">
+//           <div className="text-sm text-gray-600">☁️ Weather Risk</div>
+//           <div className="mt-1 text-2xl font-bold">{signals ? `${signals.weather.overallRisk}/100` : "—"}</div>
+//           <div className="mt-1 text-xs text-gray-500">
+//             {signals ? `Max location risk: ${signals.weather.maxRisk}/100` : "Click Update to fetch live signals."}
+//           </div>
+//         </div>
+
+//         <div className="rounded-xl bg-white p-4 shadow-sm">
+//           <div className="text-sm text-gray-600">🌍 Geopolitics Risk</div>
+//           <div className="mt-1 text-2xl font-bold">{signals ? `${signals.geopolitics.riskScore}/100` : "—"}</div>
+//           <div className="mt-1 text-xs text-gray-500">
+//             {signals ? `Articles: ${signals.geopolitics.articles.length}` : "Click Update to fetch live signals."}
+//           </div>
+//         </div>
+
+//         <div className="rounded-xl bg-white p-4 shadow-sm">
+//           <div className="text-sm text-gray-600">🕒 Signals As-Of</div>
+//           <div className="mt-1 text-base font-semibold">{signals ? new Date(signals.asOf).toLocaleString() : "—"}</div>
+//           <div className="mt-1 text-xs text-gray-500">Cached until next update.</div>
+//         </div>
+//       </div>
+//     </div>
+//   );
+// }

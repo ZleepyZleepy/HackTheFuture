@@ -13,21 +13,20 @@ import {
 } from "firebase/firestore";
 
 export type AgDataRow = {
-  date: string; // YYYY-MM-DD (keep as string for easy CSV + filters)
+  date: string; // YYYY-MM-DD
   location: string;
   product: string;
   supplier: string;
   quantity: number;
   unit: string;
 
-  // optional fields (still useful for scoring later)
   leadTimeDays?: number;
   costPerUnit?: number;
 
   routeStart?: string;
   routeEnd?: string;
   route?: string;
-  
+
   storageDays?: number;
 };
 
@@ -43,6 +42,10 @@ function requireUid(): string {
   return u.uid;
 }
 
+function cacheKey(uid: string) {
+  return `kairos_agData_${uid}`;
+}
+
 function normKey(s: unknown): string {
   return String(s ?? "")
     .trim()
@@ -51,7 +54,6 @@ function normKey(s: unknown): string {
     .replace(/[^a-z0-9_\-:.]/g, "");
 }
 
-// Deterministic doc id so re-uploading the same file doesn't create duplicates
 function rowId(row: AgDataRow, idx: number): string {
   const d = normKey(row.date || "unknown_date");
   const p = normKey(row.product || "unknown_product");
@@ -71,13 +73,10 @@ async function deleteAllDocsInCollection(pathParts: string[]) {
   const snap = await getDocs(colRef);
   if (snap.empty) return;
 
-  // Firestore batch limit is 500 ops; keep a safety margin
   const CHUNK = 450;
   for (let i = 0; i < snap.docs.length; i += CHUNK) {
     const batch = writeBatch(db);
-    for (const d of snap.docs.slice(i, i + CHUNK)) {
-      batch.delete(d.ref);
-    }
+    for (const d of snap.docs.slice(i, i + CHUNK)) batch.delete(d.ref);
     await batch.commit();
   }
 }
@@ -85,10 +84,8 @@ async function deleteAllDocsInCollection(pathParts: string[]) {
 export async function saveAgData(rows: AgDataRow[], sourceFileName: string) {
   const uid = requireUid();
 
-  // 1) Replace the current dataset (simple MVP behavior)
   await deleteAllDocsInCollection(["agDataRows"]);
 
-  // 2) Write rows (batched)
   const CHUNK = 450;
   for (let i = 0; i < rows.length; i += CHUNK) {
     const batch = writeBatch(db);
@@ -103,7 +100,6 @@ export async function saveAgData(rows: AgDataRow[], sourceFileName: string) {
     await batch.commit();
   }
 
-  // 3) Save "current" meta
   const nowMs = Date.now();
   await setDoc(
     doc(db, "users", uid, "agData", "current"),
@@ -111,12 +107,11 @@ export async function saveAgData(rows: AgDataRow[], sourceFileName: string) {
       sourceFileName,
       count: rows.length,
       updatedAt: serverTimestamp(),
-      updatedAtMs: nowMs, // for consistent ordering even before serverTimestamp resolves
+      updatedAtMs: nowMs,
     },
     { merge: true }
   );
 
-  // 4) Append a run meta record (for “last 5” uploads)
   const runRef = doc(collection(db, "users", uid, "agDataRuns"));
   await setDoc(runRef, {
     sourceFileName,
@@ -125,16 +120,27 @@ export async function saveAgData(rows: AgDataRow[], sourceFileName: string) {
     createdAtMs: nowMs,
   });
 
-  // 5) Keep only last 5 runs
   const runsSnap = await getDocs(
     query(collection(db, "users", uid, "agDataRuns"), orderBy("createdAtMs", "desc"))
   );
-
   const extra = runsSnap.docs.slice(5);
   if (extra.length) {
     const batch = writeBatch(db);
     for (const d of extra) batch.delete(d.ref);
     await batch.commit();
+  }
+
+  // cache for instant cross-page rehydrate
+  if (typeof window !== "undefined") {
+    try {
+      localStorage.setItem(
+        cacheKey(uid),
+        JSON.stringify({
+          meta: { sourceFileName, count: rows.length, updatedAt: new Date() },
+          rows,
+        })
+      );
+    } catch {}
   }
 
   return { runId: runRef.id, count: rows.length };
@@ -143,7 +149,6 @@ export async function saveAgData(rows: AgDataRow[], sourceFileName: string) {
 export async function loadAgDataFull(): Promise<{ meta: AgDataMeta; rows: AgDataRow[] }> {
   const uid = requireUid();
 
-  // meta
   const metaSnap = await getDoc(doc(db, "users", uid, "agData", "current"));
   const metaData = metaSnap.exists() ? metaSnap.data() : null;
 
@@ -153,9 +158,18 @@ export async function loadAgDataFull(): Promise<{ meta: AgDataMeta; rows: AgData
     updatedAt: metaData?.updatedAt?.toDate ? metaData.updatedAt.toDate() : null,
   };
 
-  // rows
-  const rowsSnap = await getDocs(collection(db, "users", uid, "agDataRows"));
+  // stable ordering
+  const rowsSnap = await getDocs(
+    query(collection(db, "users", uid, "agDataRows"), orderBy("date", "asc"))
+  );
   const rows: AgDataRow[] = rowsSnap.docs.map((d) => d.data() as AgDataRow);
+
+  // refresh cache
+  if (typeof window !== "undefined") {
+    try {
+      localStorage.setItem(cacheKey(uid), JSON.stringify({ meta, rows }));
+    } catch {}
+  }
 
   return { meta, rows };
 }
@@ -164,13 +178,18 @@ export async function clearAgData() {
   const uid = requireUid();
 
   await deleteAllDocsInCollection(["agDataRows"]);
-
-  // clear meta doc + runs
   await deleteDoc(doc(db, "users", uid, "agData", "current")).catch(() => {});
+
   const runsSnap = await getDocs(collection(db, "users", uid, "agDataRuns"));
   if (!runsSnap.empty) {
     const batch = writeBatch(db);
     for (const d of runsSnap.docs) batch.delete(d.ref);
     await batch.commit();
+  }
+
+  if (typeof window !== "undefined") {
+    try {
+      localStorage.removeItem(cacheKey(uid));
+    } catch {}
   }
 }

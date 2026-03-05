@@ -1,305 +1,141 @@
 export const runtime = "nodejs";
 
+import { NextResponse } from "next/server";
 import { GoogleGenAI } from "@google/genai";
 import { z } from "zod";
+import { zodToJsonSchema } from "zod-to-json-schema";
 
-type AgDataRow = {
-  date: string;
-  location: string;
-  product: string;
-  supplier: string;
-  quantity: number;
-  unit: string;
-  leadTimeDays?: number;
-  costPerUnit?: number;
-  routeStart?: string;
-  routeEnd?: string;
-  storageDays?: number;
-};
-
-const outSchema = z.object({
-  scorePct: z.number().min(0).max(100),
-  summary: z.string().min(10),
-  keyRisks: z
-    .array(
-      z.object({
-        category: z.enum(["InputShortage", "WeatherLogistics", "TradePolicy"]),
-        title: z.string(),
-        severity: z.enum(["Low", "Medium", "High"]),
-        probabilityPct: z.number().min(0).max(100),
-        impactUsd: z.number().min(0),
-        why: z.string(),
-      })
-    )
-    .min(3)
-    .max(6),
-  recommendations: z
-    .array(
-      z.object({
-        priority: z.enum(["P0", "P1", "P2"]),
-        title: z.string(),
-        requiresApproval: z.boolean(),
-        steps: z.array(z.string()).min(2).max(6),
-        tradeoffs: z.string(),
-      })
-    )
-    .min(3)
-    .max(6),
-  escalation: z.object({
-    shouldEscalate: z.boolean(),
-    reasons: z.array(z.string()).max(6),
-    suggestedOwners: z.array(z.enum(["Procurement", "Ops", "Finance", "Legal"])).max(4),
-  }),
-  reasoningTrace: z.array(z.string()).min(3).max(10),
-});
-
-function clamp(n: number, lo: number, hi: number) {
-  return Math.max(lo, Math.min(hi, n));
-}
-
-function computeQuickMetrics(rows: AgDataRow[]) {
-  const rowCount = rows.length;
-
-  const exposureUsd = rows.reduce((sum, r) => {
-    const q = Number(r.quantity || 0) || 0;
-    const c = Number(r.costPerUnit ?? 0) || 0;
-    return sum + q * c;
-  }, 0);
-
-  const withLT = rows.filter((r) => Number.isFinite(r.leadTimeDays as any));
-  const withStorage = rows.filter((r) => Number.isFinite(r.storageDays as any));
-
-  const avgLT =
-    withLT.reduce((s, r) => s + (Number(r.leadTimeDays) || 0), 0) / (withLT.length || 1);
-
-  const minStorage =
-    withStorage.reduce((m, r) => Math.min(m, Number(r.storageDays) || Infinity), Infinity);
-
-  // heuristic stockout risk signal: if storageDays < leadTimeDays, risk increases
-  const riskRows = rows.filter(
-    (r) =>
-      Number.isFinite(r.leadTimeDays as any) &&
-      Number.isFinite(r.storageDays as any) &&
-      (Number(r.storageDays) || 0) < (Number(r.leadTimeDays) || 0)
-  );
-
-  const stockoutProb = clamp((riskRows.length / Math.max(1, rowCount)) * 100 + (avgLT > 20 ? 15 : 0), 5, 95);
-
-  const topExposure = [...rows]
-    .map((r) => ({
-      product: r.product,
-      supplier: r.supplier,
-      exposure: (Number(r.quantity) || 0) * (Number(r.costPerUnit ?? 0) || 0),
-    }))
-    .sort((a, b) => b.exposure - a.exposure)
-    .slice(0, 5);
-
-  return {
-    rowCount,
-    exposureUsd: Math.round(exposureUsd),
-    avgLeadTimeDays: Math.round(avgLT),
-    minStorageDays: Number.isFinite(minStorage) ? Math.round(minStorage) : null,
-    stockoutProbabilityPct: Math.round(stockoutProb),
-    topExposure,
-  };
-}
-
-function extractJson(rawMaybe: string | undefined): any {
-  const raw = (rawMaybe ?? "").trim();
-
-  // Empty / whitespace => fail fast with helpful message
-  if (!raw) throw new Error("Gemini returned empty text (no JSON).");
-
-  // Strip common ```json fences
-  const unfenced = raw
-    .replace(/^```json\s*/i, "")
-    .replace(/^```\s*/i, "")
-    .replace(/\s*```$/i, "")
-    .trim();
-
-  // If still not valid JSON, try to slice from first { to last }
-  const first = unfenced.indexOf("{");
-  const last = unfenced.lastIndexOf("}");
-  const candidate =
-    first !== -1 && last !== -1 && last > first ? unfenced.slice(first, last + 1) : unfenced;
-
-  return JSON.parse(candidate);
-}
-
-export async function POST(req: Request) {
-  const key = process.env.GEMINI_API_KEY;
-  if (!key) {
-    return Response.json(
-      { error: "GEMINI_API_KEY missing. Add it to web/.env.local and restart the dev server." },
-      { status: 500 }
-    );
-  }
-
-  const body = (await req.json().catch(() => ({}))) as {
-    rows?: AgDataRow[];
-    insiderSources?: { title: string; text: string }[];
-    companyPolicy?: {
-      stockoutEscalatePct?: number;
-      costShockEscalateUsd?: number;
-    };
-  };
-
-  const rows = Array.isArray(body.rows) ? body.rows : [];
-
-  const insider = Array.isArray(body.insiderSources) ? body.insiderSources : [];
-  const insiderBlock =
-    insider.length > 0
-      ? insider
-          .slice(0, 6)
-          .map((s, i) => `(${i + 1}) ${s.title}\n${s.text}`)
-          .join("\n\n---\n\n")
-      : "none";
-
-  const policy = {
-    stockoutEscalatePct: body.companyPolicy?.stockoutEscalatePct ?? 60,
-    costShockEscalateUsd: body.companyPolicy?.costShockEscalateUsd ?? 50000,
-  };
-
-  const metrics = computeQuickMetrics(rows);
-
-  const ai = new GoogleGenAI({});
-
-  const prompt = `
-You are Kairos, an agriculture supply chain resilience agent.
-
-You must produce JSON ONLY that matches the schema.
-Be specific and contextual to the provided data.
-
-NEVER OUTPUT ANY API KEYS, SECRETS, OR CREDENTIALS. 
-
-Writing style rules:
-- Be specific to the provided data (mention real product + supplier names from topExposure).
-- No generic filler and uncertainty. No “it may be affected” vibes.
-- Avoid run-on sentences. Use concise lines.
-- Use emojis sparingly but clearly (1 per section max).
-- Summary must be 1–2 sentences max.
-- reasoningTrace must be bullet-like lines.
-- If you don't have enough data to fill a field, fabricate some reasonable data.
-
-Company policy thresholds:
-- Escalate if stockoutProbabilityPct >= ${policy.stockoutEscalatePct}
-- Escalate if exposureUsd (proxy for cost shock / margin risk) >= ${policy.costShockEscalateUsd}
-
-Data summary:
-- rowCount=${metrics.rowCount}
-- exposureUsd=${metrics.exposureUsd}
-- avgLeadTimeDays=${metrics.avgLeadTimeDays}
-- minStorageDays=${metrics.minStorageDays ?? "N/A"}
-- stockoutProbabilityPct=${metrics.stockoutProbabilityPct}
-- topExposure items (product, supplier, exposureUsd):
-${metrics.topExposure.map((x) => `  - ${x.product} | ${x.supplier} | ${Math.round(x.exposure)}`).join("\n")}
-Insider sources (non-public): ${insiderBlock}
-Hard requirement:
-- Every keyRisk must cite at least ONE number from metrics and ONE product/supplier example.
-
-Make keyRisks cover:
-1) Critical input shortage / price shock
-2) Weather/logistics bottleneck risk
-3) Trade policy / restriction shock risk
-
-Recommendations must include:
-- buffer inventory OR adjust PO timing
-- alternate supplier / reroute options
-- one "approval packet" suggestion (what to send to humans)
-
-Use numbers from metrics in reasoningTrace.
-`
-;
-
-  const responseJsonSchema = {
-    type: "object",
-    additionalProperties: false,
-    required: ["scorePct", "summary", "keyRisks", "recommendations", "escalation", "reasoningTrace"],
-    properties: {
-      scorePct: { type: "number", minimum: 0, maximum: 100 },
-      summary: { type: "string" },
-      keyRisks: {
-        type: "array",
-        minItems: 3,
-        maxItems: 6,
-        items: {
-          type: "object",
-          additionalProperties: false,
-          required: ["category", "title", "severity", "probabilityPct", "impactUsd", "why"],
-          properties: {
-            category: { type: "string", enum: ["InputShortage", "WeatherLogistics", "TradePolicy"] },
-            title: { type: "string" },
-            severity: { type: "string", enum: ["Low", "Medium", "High"] },
-            probabilityPct: { type: "number", minimum: 0, maximum: 100 },
-            impactUsd: { type: "number", minimum: 0 },
-            why: { type: "string" },
-          },
-        },
-      },
-      recommendations: {
-        type: "array",
-        minItems: 3,
-        maxItems: 6,
-        items: {
-          type: "object",
-          additionalProperties: false,
-          required: ["priority", "title", "requiresApproval", "steps", "tradeoffs"],
-          properties: {
-            priority: { type: "string", enum: ["P0", "P1", "P2"] },
-            title: { type: "string" },
-            requiresApproval: { type: "boolean" },
-            steps: { type: "array", minItems: 2, maxItems: 6, items: { type: "string" } },
-            tradeoffs: { type: "string" },
-          },
-        },
-      },
-      escalation: {
+const responseJsonSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["recommendations", "escalation", "aiInsights", "topExposureDrivers", "keyRisks"],
+  properties: {
+    recommendations: {
+      type: "array",
+      minItems: 1,
+      items: {
         type: "object",
         additionalProperties: false,
-        required: ["shouldEscalate", "reasons", "suggestedOwners"],
+        required: ["title", "urgency", "why", "steps", "owner", "eta", "evidence"],
         properties: {
-          shouldEscalate: { type: "boolean" },
-          reasons: { type: "array", maxItems: 6, items: { type: "string" } },
-          suggestedOwners: { type: "array", maxItems: 4, items: { type: "string", enum: ["Procurement", "Ops", "Finance", "Legal"] } },
+          title: { type: "string" },
+          urgency: { type: "string", enum: ["low", "medium", "high"] },
+          why: { type: "string" },
+          steps: { type: "array", items: { type: "string" }, minItems: 1 },
+          owner: { type: "string" },
+          eta: { type: "string" },
+          evidence: { type: "array", items: { type: "string" } },
         },
       },
-      reasoningTrace: { type: "array", minItems: 3, maxItems: 10, items: { type: "string" } },
     },
-  } as const;
-
-  const resp = await ai.models.generateContent({
-    model: "gemini-3-flash-preview",
-    contents: prompt,
-    config: {
-      responseMimeType: "application/json",
-      responseJsonSchema: responseJsonSchema as any,
-      temperature: 0.3,
-    },
-  });
-
-  const raw = resp.text;
-
-  let jsonObj: any;
-  try {
-    jsonObj = extractJson(raw);
-  } catch (e: any) {
-    return Response.json(
-      {
-        error: "Failed to parse Gemini JSON output",
-        detail: e?.message ?? String(e),
-        rawPreview: String(raw ?? "").slice(0, 400),
+    escalation: {
+      type: "object",
+      additionalProperties: false,
+      required: ["level", "message", "who", "when", "evidence"],
+      properties: {
+        level: { type: "string", enum: ["none", "watch", "escalate"] },
+        message: { type: "string" },
+        who: { type: "array", items: { type: "string" } },
+        when: { type: "string" },
+        evidence: { type: "array", items: { type: "string" } },
       },
+    },
+    aiInsights: { type: "array", items: { type: "string" } },
+    topExposureDrivers: { type: "array", items: { type: "string" } },
+    keyRisks: { type: "array", items: { type: "string" } },
+  },
+} as const;
+
+export async function POST(req: Request) {
+  try {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      return NextResponse.json(
+        { ok: false, error: "Missing GEMINI_API_KEY in .env.local" },
+        { status: 500 }
+      );
+    }
+
+    const body = (await req.json()) as {
+      meta?: { sourceFileName?: string | null; count?: number | null };
+      kpis?: {
+        totalSpend?: number;
+        avgLeadTime?: number;
+        avgStorage?: number;
+        stockoutRiskPct?: number;
+      };
+      exposures?: {
+        bySupplier?: Array<{ name: string; value: number }>;
+        byProduct?: Array<{ name: string; value: number }>;
+        byLocation?: Array<{ name: string; value: number }>;
+      };
+      signals?: unknown;
+      insiderNotes?: string[];
+    };
+
+    const ai = new GoogleGenAI({ apiKey });
+    const model = process.env.KAIROS_GEMINI_MODEL ?? "gemini-3-flash-preview";
+
+    const prompt = `
+You are Kairos, an agriculture supply-chain operations copilot.
+Goal: produce SPECIFIC, non-generic output grounded in the provided dataset + live signals.
+
+Hard rules:
+- Every recommendation MUST include at least ONE specific supplier/product/location (from exposures) AND at least ONE number (KPI, share %, risk score).
+- No generic filler. No “may”. Be decisive.
+- Short punchy sentences. Emojis are welcome in titles.
+- Prefer actions that an ops team can execute in 24h / 72h / 2 weeks.
+- Evidence items must reference input values (KPIs/exposure/signal scores/headlines).
+
+INPUT (use as evidence):
+Dataset meta: ${JSON.stringify(body.meta ?? {}, null, 2)}
+KPIs: ${JSON.stringify(body.kpis ?? {}, null, 2)}
+Exposure (top): ${JSON.stringify(body.exposures ?? {}, null, 2)}
+Signals: ${JSON.stringify(body.signals ?? {}, null, 2)}
+Insider notes (optional): ${JSON.stringify(body.insiderNotes ?? [], null, 2)}
+
+Return ONLY valid JSON that matches the schema exactly.
+`;
+
+    const resp = await ai.models.generateContent({
+      model,
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseJsonSchema: responseJsonSchema as any,
+        temperature: 0.3,
+      },
+    });
+
+    const raw = resp.text ?? "";
+
+    if (!raw.trim()) {
+      return NextResponse.json(
+        { ok: false, error: "Gemini returned empty response" },
+        { status: 500 }
+      );
+    }
+
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (e) {
+      return NextResponse.json(
+        { ok: false, error: "Failed to parse Gemini JSON", rawPreview: raw.slice(0, 300) },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({
+      ok: true,
+      asOf: new Date().toISOString(),
+      model,
+      output: parsed,
+    });
+  } catch (e: any) {
+    return NextResponse.json(
+      { ok: false, error: e?.message ?? "analyze failed" },
       { status: 500 }
     );
   }
-
-  const parsed = outSchema.parse(jsonObj);
-
-  return Response.json({
-    ...parsed,
-    _debug: {
-      geminiEnabled: true,
-      metrics,
-    },
-  });
 }

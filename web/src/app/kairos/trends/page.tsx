@@ -372,3 +372,92 @@ export default function Page() {
     </div>
   );
 }
+
+
+
+// "use client";
+
+// import Link from "next/link";
+// import { useKairosData } from "@/components/kairos/useKairosData";
+// import { useKairosSignals } from "@/components/kairos/useKairosSignals";
+
+// export default function KairosTrendsPage() {
+//   const { meta, rows, insiderCount } = useKairosData();
+//   const { signals, updating, error, updateSignals } = useKairosSignals(rows);
+
+//   return (
+//     <div className="space-y-4">
+//       <div className="flex items-start justify-between gap-4">
+//         <div>
+//           <h1 className="text-2xl font-bold">📈 Kairos Trends</h1>
+
+//           <div className="mt-1 flex flex-wrap gap-6 text-sm text-gray-600">
+//             {meta?.sourceFileName ? (
+//               <span>
+//                 📄 Dataset: <span className="font-medium">{meta.sourceFileName}</span> ·{" "}
+//                 <span className="font-medium">{meta.count ?? 0}</span> rows
+//               </span>
+//             ) : (
+//               <span>📄 Dataset: —</span>
+//             )}
+
+//             <span>
+//               🕵️ Insider Sources: <span className="font-medium">{insiderCount}</span>{" "}
+//               <Link href="/kairos/sources" className="hover:underline">
+//                 (manage)
+//               </Link>
+//             </span>
+//           </div>
+//         </div>
+
+//         <button
+//           onClick={updateSignals}
+//           disabled={updating || !rows.length}
+//           className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+//           title={!rows.length ? "Upload a dataset first" : undefined}
+//         >
+//           {updating ? "Updating..." : "Update"}
+//         </button>
+//       </div>
+
+//       {error ? <div className="text-sm text-red-600">{error}</div> : null}
+
+//       {/* You can feed `rows` into your deeper charts; signals are extra overlays */}
+//       <div className="grid gap-4 lg:grid-cols-2">
+//         <div className="rounded-xl bg-white p-4 shadow-sm">
+//           <div className="text-lg font-semibold">☁️ Weather by Location</div>
+//           <div className="mt-2 text-sm text-gray-700">
+//             {signals ? (
+//               <ul className="space-y-1">
+//                 {signals.weather.locations.slice(0, 6).map((x) => (
+//                   <li key={x.location}>
+//                     • {x.location}: <span className="font-semibold">{x.risk}/100</span>
+//                     {typeof x.tempC === "number" ? ` · ${Math.round(x.tempC)}°C` : ""}
+//                     {typeof x.windMps === "number" ? ` · ${Math.round(x.windMps)} m/s` : ""}
+//                   </li>
+//                 ))}
+//               </ul>
+//             ) : (
+//               "Click Update to load location signals."
+//             )}
+//           </div>
+//         </div>
+
+//         <div className="rounded-xl bg-white p-4 shadow-sm">
+//           <div className="text-lg font-semibold">🌍 Geopolitics Trend Proxy</div>
+//           <div className="mt-2 text-sm text-gray-700">
+//             {signals ? (
+//               <>
+//                 Risk score: <span className="font-semibold">{signals.geopolitics.riskScore}/100</span>
+//                 <br />
+//                 Articles: <span className="font-semibold">{signals.geopolitics.articles.length}</span>
+//               </>
+//             ) : (
+//               "Click Update to load geopolitics signals."
+//             )}
+//           </div>
+//         </div>
+//       </div>
+//     </div>
+//   );
+// }

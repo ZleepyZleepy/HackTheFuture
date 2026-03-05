@@ -1,0 +1,7 @@
+{
+  "dependencies": {
+    "@google/genai": "^1.44.0",
+    "zod": "^4.3.6",
+    "zod-to-json-schema": "^3.25.1"
+  }
+}

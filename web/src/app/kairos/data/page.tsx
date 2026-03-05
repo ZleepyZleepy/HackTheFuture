@@ -1,7 +1,9 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { onAuthStateChanged } from "firebase/auth";
+import { auth } from "@/lib/firebase";
 import { saveAgData, loadAgDataFull, type AgDataRow as SavedAgRow } from "@/lib/agData";
 
 type AgRow = {
@@ -27,18 +29,17 @@ function parseCsv(text: string): AgRow[] {
   if (!lines.length) return [];
 
   const header = lines[0].split(",").map((h) => h.trim().toLowerCase());
+  const hasHeader = header.includes("date") && header.includes("product");
+  const start = hasHeader ? 1 : 0;
+
   const idx = (name: string, fallback: number) => {
     const i = header.indexOf(name);
     return i === -1 ? fallback : i;
   };
 
-  const hasHeader = header.includes("date") && header.includes("product");
-  const start = hasHeader ? 1 : 0;
-
   const rows: AgRow[] = [];
   for (let i = start; i < lines.length; i++) {
     const cols = lines[i].split(",").map((c) => c.trim());
-
     const get = (name: string, fallback: number) => cols[idx(name, fallback)] ?? "";
 
     const row: AgRow = {
@@ -48,7 +49,7 @@ function parseCsv(text: string): AgRow[] {
       supplier: get("supplier", 3),
       quantity: Number(get("quantity", 4)) || 0,
       unit: get("unit", 5),
-      leadTimeDays: Number(get("leadtimeDays".toLowerCase(), 6) || get("leadtimedays", 6)) || 0,
+      leadTimeDays: Number(get("leadtimedays", 6)) || 0,
       costPerUnit: Number(get("costperunit", 7)) || 0,
       routeStart: get("routestart", 8),
       routeEnd: get("routeend", 9),
@@ -67,6 +68,21 @@ export default function Page() {
   const [fileName, setFileName] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+
+  // rehydrate dataset whenever you open this page (including after navigation)
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, async (u) => {
+      if (!u) return;
+      try {
+        const loaded = await loadAgDataFull();
+        if (loaded?.meta?.sourceFileName) setFileName(loaded.meta.sourceFileName);
+        if (loaded?.rows?.length) setRows(loaded.rows as any);
+      } catch {
+        // ok if empty
+      }
+    });
+    return () => unsub();
+  }, []);
 
   const stats = useMemo(() => {
     const suppliers = new Set(rows.map((r) => r.supplier).filter(Boolean));
@@ -87,7 +103,9 @@ export default function Page() {
       setRows(parsed);
 
       await saveAgData(parsed as unknown as SavedAgRow[], f.name);
+
       const loaded = await loadAgDataFull();
+      if (loaded?.meta?.sourceFileName) setFileName(loaded.meta.sourceFileName);
       if (loaded?.rows?.length) setRows(loaded.rows as any);
     } catch (e: any) {
       setErr(e?.message ?? "Upload failed");
@@ -108,17 +126,19 @@ export default function Page() {
         </div>
         <h1 className="text-2xl font-semibold">📦 Data Upload</h1>
         <p className="text-sm text-gray-600">
-          Upload ops data (ag inputs / shipments) so Kairos can compute exposure, delays, and stockout risk.
+          Upload ops data so Kairos can compute exposure, delays, and stockout risk.
         </p>
       </div>
 
-      {/* ✅ Upload UI */}
       <section className="rounded-xl border bg-white p-5 shadow-sm">
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div>
             <div className="text-sm font-semibold">Upload CSV</div>
             <div className="text-xs text-gray-600">
-              Columns: <span className="font-medium">date, location, product, supplier, quantity, unit, leadTimeDays, costPerUnit, routeStart, routeEnd, storageDays</span>
+              Columns:{" "}
+              <span className="font-medium">
+                date, location, product, supplier, quantity, unit, leadTimeDays, costPerUnit, routeStart, routeEnd, storageDays
+              </span>
             </div>
           </div>
 
@@ -154,20 +174,19 @@ export default function Page() {
         >
           <div className="text-lg font-semibold">Drag & drop your CSV here</div>
           <div className="text-sm text-gray-600 mt-1">or click “Browse files”</div>
-          {fileName ? (
-            <div className="mt-3 text-xs text-gray-600">
-              Loaded: <span className="font-medium">{fileName}</span> ·{" "}
-              <span className="font-medium">{stats.count}</span> rows ·{" "}
-              <span className="font-medium">{stats.products}</span> products ·{" "}
-              <span className="font-medium">{stats.suppliers}</span> suppliers
-            </div>
-          ) : null}
+
+          <div className="mt-3 text-xs text-gray-600">
+            📄 Dataset:{" "}
+            {fileName ? <span className="font-medium">{fileName}</span> : <span>—</span>} ·{" "}
+            <span className="font-medium">{stats.count}</span> rows ·{" "}
+            <span className="font-medium">{stats.products}</span> products ·{" "}
+            <span className="font-medium">{stats.suppliers}</span> suppliers
+          </div>
         </div>
 
         {err ? <div className="mt-3 text-sm text-red-600">⚠️ {err}</div> : null}
       </section>
 
-      {/* Preview */}
       <section className="rounded-xl border bg-white p-5 shadow-sm">
         <h2 className="text-lg font-semibold">Preview</h2>
 
