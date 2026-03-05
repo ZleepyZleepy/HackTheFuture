@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { loadKairosRuns, type KairosRun } from "@/lib/kairosRuns";
+import { loadKairosRuns, type KairosRun } from "@/lib/runs";
 
 export default function Page() {
   const [runs, setRuns] = useState<KairosRun[]>([]);
