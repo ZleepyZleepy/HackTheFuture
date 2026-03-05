@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { signOut } from "firebase/auth";
 import { auth } from "@/lib/firebase";
 
@@ -10,16 +10,14 @@ export default function KairosShell({ children }: { children: React.ReactNode })
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const pathname = usePathname();
 
-  const nav = useMemo(
-    () => [
-      { label: "Dashboard", href: "/kairos", icon: "" },
-      { label: "Analysis", href: "/kairos/analysis", icon: "" },
-      { label: "Data Upload", href: "/kairos/data", icon: "" },
-      { label: "Insider Sources", href: "/kairos/sources", icon: "" }, // ✅ icon back
-      { label: "Run History", href: "/kairos/history", icon: "" },
-    ],
-    []
-  );
+  const nav = [
+    { label: "Dashboard", href: "/kairos", icon: "" },
+    { label: "Analytics", href: "/kairos/analytics", icon: "" },
+    { label: "Trends", href: "/kairos/trends", icon: "" },
+    { label: "Data Upload", href: "/kairos/data", icon: "" },
+    { label: "Insider Sources", href: "/kairos/sources", icon: "" },
+    { label: "Run History", href: "/kairos/history", icon: "" },
+  ];
 
   async function handleSignOut() {
     await signOut(auth);
@@ -31,20 +29,18 @@ export default function KairosShell({ children }: { children: React.ReactNode })
       {/* Sidebar */}
       <nav className="sidebar dashboard__sidebar" id="sidebar" aria-label="Sidebar Navigation">
         {/* ✅ Logo image instead of text */}
-        <div className="sidebar__logo" aria-label="Kairos Logo" style={{ left: 24, top: 18 }}>
+        <div className="sidebar__logo" aria-label="Kairos Logo" style={{ left: 16, top: 48 }}>
           <img
             src="/kairos-logo.png"
             alt="Kairos"
-            style={{ height: 42, width: "auto", display: "block" }}
+            style={{ height: 80, width: "auto", display: "block" }}
           />
         </div>
 
-        {/* ✅ removed divider + 'PAGES' */}
-
-        <div className="sidebar__nav" style={{ top: 86 }}>
+        <div className="sidebar__nav" style={{ top: 120 }}>
           <ul className="sidebar__list">
             {nav.map((item) => {
-              const active = pathname === item.href;
+              const active = item.href === "/kairos" ? pathname === "/kairos" : pathname.startsWith(item.href);
               return (
                 <li key={item.href} className={`sidebar__item ${active ? "sidebar__item--active" : ""}`}>
                   {active ? (
@@ -126,9 +122,6 @@ export default function KairosShell({ children }: { children: React.ReactNode })
                 src="https://www.figma.com/api/mcp/asset/640d7e11-8865-4893-b1ed-cdf2aae42038"
                 alt="Notification bell icon"
               />
-              <span className="topbar__notif-badge" aria-hidden="true">
-                6
-              </span>
             </button>
 
             <div className="topbar__profile" aria-label="User profile">
