@@ -205,7 +205,7 @@ export default function Page() {
           <h1 className="text-2xl font-bold">Data Upload</h1>
 
           <p className="mt-1 text-sm text-gray-600">
-            Upload Operations Data so Kairos can compute exposure, delays, and stockout risk.
+            Upload additional Operations Data so Kairos can compute exposure, delays, and stockout risk.
           </p>
 
           <div className="mt-1 flex flex-wrap gap-6 text-sm text-gray-600">

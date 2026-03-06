@@ -60,7 +60,6 @@ const afterToolCallback: AfterToolCallback = async ({ tool, args, response, cont
   const prev = stateGet(st, key);
   const arr: any[] = Array.isArray(prev) ? prev : [];
 
-  // Keep entries small (serializable + not gigantic)
   const entry = {
     at: new Date().toISOString(),
     tool: tool?.name ?? "unknown_tool",
@@ -70,12 +69,10 @@ const afterToolCallback: AfterToolCallback = async ({ tool, args, response, cont
 
   arr.push(entry);
 
-  // prevent unbounded growth in dev UI
   const trimmed = arr.slice(-30);
   stateSet(st, key, trimmed);
 
   if (DEBUG_TOOLS) {
-    // eslint-disable-next-line no-console
     console.log("[TOOL]", entry.tool, entry.args, "=>", entry.response?.status ?? "ok");
   }
 
@@ -84,10 +81,6 @@ const afterToolCallback: AfterToolCallback = async ({ tool, args, response, cont
 
 /** -------------------- Tools (wrapped object outputs) -------------------- **/
 
-/**
- * Combined weather tool: 1 call per location (deterministic inside tool)
- * Returns a compact forecast summary to reduce tokens + state size.
- */
 const weatherForecastForLocation = new FunctionTool({
   name: "weather_forecast_for_location",
   description:
@@ -126,7 +119,6 @@ const weatherForecastForLocation = new FunctionTool({
 
     const raw = await fcRes.json();
 
-    // Compact points: first 16 x 3-hour blocks (~2 days) to stay light
     const points = Array.isArray(raw?.list)
       ? raw.list.slice(0, 16).map((p: any) => ({
           dt_txt: p?.dt_txt,
@@ -265,7 +257,7 @@ const WeatherSignal = z.object({
   location: z.string(),
   timeWindow: z.string(),
   severity: z.number().min(0).max(100),
-  evidence: z.array(z.string()),
+  evidence: z.array(z.string()).min(1),
 });
 
 const GeoSignal = z.object({
@@ -274,7 +266,7 @@ const GeoSignal = z.object({
   region: z.string(),
   severity: z.number().min(0).max(100),
   links: z.array(z.string()),
-  evidence: z.array(z.string()),
+  evidence: z.array(z.string()).min(1),
 });
 
 const LogisticsSignal = z.object({
@@ -283,14 +275,35 @@ const LogisticsSignal = z.object({
   corridor: z.string(),
   severity: z.number().min(0).max(100),
   links: z.array(z.string()),
-  evidence: z.array(z.string()),
+  evidence: z.array(z.string()).min(1),
 });
 
 const InsiderSignal = z.object({
   title: z.string(),
   summary: z.string(),
   severity: z.number().min(0).max(100),
-  evidence: z.array(z.string()),
+  evidence: z.array(z.string()).min(1),
+});
+
+const StrategyItem = z.object({
+  title: z.string(),
+  summary: z.string(),
+  effectiveness: z.number().min(0).max(1),
+});
+
+const PredictionItem = z.object({
+  category: z.enum(["short_term", "long_term"]),
+  horizon: z.string(),
+  title: z.string(),
+  prediction: z.string(),
+  confidence: z.number().min(0).max(1),
+  drivers: z.array(z.string()),
+});
+
+const ActionPlanItem = z.object({
+  step: z.number().int().min(1),
+  do: z.string(),
+  details: z.string(),
 });
 
 const FinalSchemaZod = z.object({
@@ -311,30 +324,15 @@ const FinalSchemaZod = z.object({
     }),
     why: z.array(z.string()),
   }),
-  aiInsights: z.array(z.string()),
-  predictions: z.array(
-    z.object({
-      horizon: z.string(),
-      prediction: z.string(),
-      confidence: z.number().min(0).max(1),
-      drivers: z.array(z.string()),
-    })
-  ),
-  strategies: z.array(z.string()),
-  actionPlan: z.array(
-    z.object({
-      step: z.number().int().min(1),
-      do: z.string(),
-      output: z.string(),
-      owner: z.string(),
-      eta: z.string(),
-    })
-  ),
+  aiInsights: z.array(z.string()).length(4),
+  predictions: z.array(PredictionItem).min(2),
+  strategies: z.array(StrategyItem).min(3),
+  actionPlan: z.array(ActionPlanItem).min(4),
 });
 
 const formatGenCfg: GenerateContentConfig = {
   temperature: 0.2,
-  maxOutputTokens: 1200,
+  maxOutputTokens: 2200,
 };
 
 const Formatter = new LlmAgent({
@@ -357,24 +355,54 @@ Tool runs injected here (JSON):
 
 Hard rules:
 - Output MUST match the output schema exactly (pure JSON).
-- You may fabricate ONLY numeric heuristics (scores/confidence) when info is insufficient.
+- You may fabricate ONLY numeric heuristics (scores/confidence/effectiveness) when info is insufficient.
 - You must NOT fabricate external facts (no made-up rain, strikes, sanctions, closures).
   Only claim events if they appear in tool runs (weather_forecast_for_location points or GDELT articles)
   OR directly stated in insiderNotes.
+- Every signal must have a non-empty evidence array.
+- Do NOT use empty evidence.
+- Do NOT use evidence like "0 searches found", "0 results found", or similar wording.
+- If no material news articles are available, evidence should instead reference the query theme used, the relevant dataset context, the inspected region/corridor, the tool source, or any tool error message.
 
 How to build signals:
 1) Weather:
 - If weather tool success exists for a location, inspect points for potential disruption (high wind, high precip, snow, high pop).
-- If no major patterns, create a low-severity "No major weather disruptions detected (tool-backed)" signal with evidence like "pointsCount=16".
 - If weather tool errored, create "Weather data unavailable" signal with evidence containing error_message/url.
 
 2) Geopolitics + Logistics:
 - If GDELT success has articleCount>0, create 1-3 signals based on article titles; include links.
-- If articleCount==0, create a low-severity baseline "No major ... found (tool-backed)" with evidence including the query and articleCount=0.
+- If articleCount indicates no material matches, create a low-severity baseline "No major ... found (tool-backed)" signal with evidence referencing the query theme, inspected market/corridor, and source.
 - If tool errored, create "Data unavailable" signal with evidence including error_message/url.
 
 3) Insider:
-- Always convert insiderNotes to insiderSignals (severity heuristic allowed), evidence must quote the note.
+- Always convert insiderNotes to insiderSignals (severity heuristic allowed), evidence must quote or closely paraphrase the note.
+
+4) AI insights:
+- Return EXACTLY 4 aiInsights.
+- Each aiInsight must be 1-3 sentences.
+- Keep sentences short and clear. Do not write run-on sentences.
+
+5) Strategies:
+- Return AT LEAST 3 strategies.
+- Each strategy must have a title.
+- Each strategy must include an effectiveness score from 0 to 1.
+- Each strategy summary must be 1-3 sentences.
+- Keep sentences short and clear. Do not write run-on sentences.
+
+6) Predictions:
+- Return AT LEAST 2 predictions.
+- Include AT LEAST one short_term prediction and one long_term prediction.
+- Each prediction must have a title.
+- Each prediction explanation must be 1-3 sentences.
+- Keep sentences short and clear. Do not write run-on sentences.
+- Use conditional language when data is limited.
+
+7) Action plan:
+- Return AT LEAST 4 steps.
+- Each step must have a short action in "do".
+- Each step must include "details" with 2-3 sentences.
+- Do NOT include output, owner, or eta fields.
+- Keep sentences short and clear. Do not write run-on sentences.
 
 Risk scoring:
 - Use exposures/kpis + signal severities.

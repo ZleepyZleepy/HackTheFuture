@@ -272,7 +272,6 @@ export default function Page() {
           </p>
 
           <div className="mt-2 flex flex-wrap items-center gap-x-6 gap-y-1 text-sm text-gray-600">
-            
             {meta?.sourceFileName ? (
               <span>
                 📄 Dataset: <span className="font-medium">{meta.sourceFileName}</span> ·{" "}
@@ -379,7 +378,7 @@ export default function Page() {
           <div className="mt-2 text-sm text-gray-600">Waiting for first run…</div>
         ) : (
           <div className="mt-3 grid gap-2 md:grid-cols-2">
-            {insights.slice(0, 6).map((x: string, i: number) => (
+            {insights.slice(0, 4).map((x: string, i: number) => (
               <div key={i} className="rounded-xl bg-white/70 p-3 text-sm text-gray-700 shadow-sm ring-1 ring-white/60">
                 {x}
               </div>
@@ -420,13 +419,24 @@ export default function Page() {
                 ) : (
                   <div className="mt-3 space-y-3">
                     {strategies.slice(0, 6).map((s: any, i: number) => {
-                      const title = typeof s === "string" ? "Strategy" : String(s?.title ?? "Strategy");
-                      const body = typeof s === "string" ? s : String(s?.summary ?? s?.why ?? "");
+                      const title = String(s?.title ?? "Strategy");
+                      const body = String(s?.summary ?? "");
+                      const effectiveness =
+                        typeof s?.effectiveness === "number"
+                          ? `${Math.round(s.effectiveness * 100)}%`
+                          : s?.effectiveness
+                          ? String(s.effectiveness)
+                          : null;
 
                       return (
                         <div key={i} className="rounded-xl bg-white/70 p-3 shadow-sm ring-1 ring-white/70">
-                          <div className="font-semibold">{title}</div>
-                          <div className="mt-2 text-sm text-gray-700">{body}</div>
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="font-semibold">{title}</div>
+                            {effectiveness ? (
+                              <div className="text-xs text-gray-600">Effectiveness: {effectiveness}</div>
+                            ) : null}
+                          </div>
+                          <div className="mt-2 text-sm leading-6 text-gray-700">{body}</div>
                         </div>
                       );
                     })}
@@ -440,8 +450,9 @@ export default function Page() {
                   <div className="mt-2 text-sm text-gray-600">No predictions yet.</div>
                 ) : (
                   <div className="mt-3 space-y-3">
-                    {predictions.slice(0, 4).map((p: any, i: number) => {
+                    {predictions.slice(0, 6).map((p: any, i: number) => {
                       const horizon = normalizePredictionTitle(String(p?.horizon ?? "Horizon"));
+                      const title = String(p?.title ?? horizon);
                       const pred = String(p?.prediction ?? "");
                       const conf =
                         typeof p?.confidence === "number"
@@ -453,10 +464,13 @@ export default function Page() {
                       return (
                         <div key={i} className="rounded-xl bg-white/70 p-3 shadow-sm ring-1 ring-white/70">
                           <div className="flex items-center justify-between gap-3">
-                            <div className="font-semibold">{horizon}</div>
+                            <div className="font-semibold">{title}</div>
                             {conf ? <div className="text-xs text-gray-600">Confidence: {conf}</div> : null}
                           </div>
-                          <div className="mt-2 text-sm text-gray-700">{pred}</div>
+                          <div className="mt-1 text-xs font-medium uppercase tracking-wide text-gray-500">
+                            {horizon}
+                          </div>
+                          <div className="mt-2 text-sm leading-6 text-gray-700">{pred}</div>
                         </div>
                       );
                     })}
@@ -487,8 +501,8 @@ export default function Page() {
                 return (
                   <div key={i} className="rounded-2xl bg-white/75 p-4 shadow-sm ring-1 ring-white/70">
                     <div className="text-sm font-semibold text-emerald-900">Step {stepNum}</div>
-                    <div className="mt-1 text-sm text-gray-800">{main}</div>
-                    {extra ? <div className="mt-2 text-sm text-gray-600">{extra}</div> : null}
+                    <div className="mt-1 text-sm font-medium text-gray-800">{main}</div>
+                    {extra ? <div className="mt-2 text-sm leading-6 text-gray-600">{extra}</div> : null}
 
                     {Array.isArray(s?.substeps) && s.substeps.length > 0 ? (
                       <ul className="mt-3 space-y-1 text-sm text-gray-700">

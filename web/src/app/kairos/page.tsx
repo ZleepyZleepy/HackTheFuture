@@ -286,7 +286,7 @@ export default function Page() {
         <KpiCard
           title="Stockout Risk"
           value={`${fmtNum(computed.stockoutRiskPct)}%`}
-          sub={`Heuristic: ${computed.riskLabel}`}
+          sub={`Risk Level: ${computed.riskLabel}`}
           className="bg-gradient-to-br from-amber-500 to-orange-600"
         />
 
