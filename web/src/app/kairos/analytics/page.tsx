@@ -4,6 +4,10 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useKairosAgent } from "@/components/kairos/useKairosAgent";
 
+function displayLevel(level: string) {
+  return level === "medium" ? "moderate" : level;
+}
+
 function badge(level: string) {
   const l = String(level || "").toLowerCase();
   if (l === "high") return "bg-red-100 text-red-800";
@@ -24,15 +28,16 @@ function levelFromScore(score: number): "low" | "medium" | "high" {
   return "low";
 }
 
-function scoreExplain(kind: "weather" | "geopolitics" | "logistics") {
-  const base =
-    kind === "weather"
-      ? "Higher = higher disruption probability from severe weather across your locations."
-      : kind === "geopolitics"
-      ? "Higher = higher disruption probability from trade, policy, or cross-border shocks tied to your ag inputs."
-      : "Higher = higher disruption probability from port, rail, strike, and closure issues.";
+function scoreGuide(kind: "weather" | "geopolitics" | "logistics") {
+  if (kind === "weather") {
+    return "A metric of disruption risk from severe weather events (storms, heavy rain, snow, heat, or flooding) affecting your supply chain locations.";
+  }
 
-  return `${base} 0–30: low / safe · 31–69: moderate / monitor closely · 70–100: dangerous / high disruption risk.`;
+  if (kind === "geopolitics") {
+    return "A metric of disruption risk from trade policy changes, sanctions, tariffs, export restrictions, or geopolitical instability.";
+  }
+
+  return "A metric of disruption risk from transportation issues such as port congestion, rail delays, strikes, or infrastructure bottlenecks.";
 }
 
 function asNumber(x: any, fallback = 0) {
@@ -65,20 +70,49 @@ function statusText(tick: number) {
   return cycle[tick % cycle.length];
 }
 
-function SignalsList({ items }: { items: any[] }) {
-  if (!items.length) return <div className="mt-2 text-sm text-gray-600">No signals yet.</div>;
+function SectionShell({
+  title,
+  accent,
+  children,
+}: {
+  title: string;
+  accent: "violet" | "amber" | "green";
+  children: ReactNode;
+}) {
+  const shell =
+    accent === "violet"
+      ? "from-violet-50 to-fuchsia-50 ring-violet-200"
+      : accent === "amber"
+      ? "from-amber-50 to-orange-50 ring-amber-200"
+      : "from-emerald-50 to-teal-50 ring-emerald-200";
 
   return (
-    <div className="mt-3 space-y-2">
+    <div className={`rounded-2xl bg-gradient-to-br ${shell} p-5 shadow-sm ring-1`}>
+      <div className="text-lg font-semibold">{title}</div>
+      {children}
+    </div>
+  );
+}
+
+function SignalsList({
+  items,
+  emptyText,
+}: {
+  items: any[];
+  emptyText: string;
+}) {
+  if (!items.length) return <div className="mt-3 text-sm text-gray-600">{emptyText}</div>;
+
+  return (
+    <div className="mt-3 space-y-3">
       {items.map((s, i) => (
-        <div key={i} className="rounded-xl bg-white/70 p-3 shadow-sm ring-1 ring-white/60">
-          <div className="flex items-center justify-between gap-3">
-            <div className="font-semibold">{String(s?.title ?? "Signal")}</div>
-            {"severity" in s ? <div className="text-xs text-gray-600">Severity: {String(s.severity)}/100</div> : null}
-          </div>
-          {s?.summary ? <div className="mt-1 text-sm text-gray-700">{String(s.summary)}</div> : null}
+        <div key={i} className="rounded-xl bg-white/80 p-4 shadow-sm ring-1 ring-white/70">
+          <div className="font-semibold text-gray-900">{String(s?.title ?? "Signal")}</div>
+          {s?.summary ? <div className="mt-2 text-sm leading-6 text-gray-700">{String(s.summary)}</div> : null}
           {Array.isArray(s?.evidence) && s.evidence.length > 0 ? (
-            <div className="mt-2 text-xs text-gray-500">Evidence: {s.evidence.slice(0, 2).map(String).join(" · ")}</div>
+            <div className="mt-3 text-xs leading-5 text-gray-500">
+              Evidence: {s.evidence.slice(0, 2).map(String).join(" · ")}
+            </div>
           ) : null}
         </div>
       ))}
@@ -90,61 +124,49 @@ function GradientKpiCard({
   title,
   score,
   level,
-  explain,
-  tone,
+  guide,
+  gradient,
   loading,
+  loadingNote,
+  showBadge,
 }: {
   title: string;
   score: number;
   level: "low" | "medium" | "high";
-  explain: string;
-  tone: "sky" | "indigo" | "emerald";
+  guide: string;
+  gradient: string;
   loading: boolean;
+  loadingNote: string;
+  showBadge: boolean;
 }) {
-  const gradient =
-    tone === "sky"
-      ? "from-sky-700 via-sky-600 to-cyan-500"
-      : tone === "indigo"
-      ? "from-indigo-700 via-violet-600 to-fuchsia-500"
-      : "from-emerald-700 via-teal-600 to-cyan-500";
-
   return (
     <div className={`rounded-2xl bg-gradient-to-br ${gradient} p-4 text-white shadow-lg`}>
       <div className="flex items-center justify-between">
         <div className="text-lg font-semibold">{title}</div>
-        <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${badge(level)}`}>
-          {icon(level)} {level}
-        </span>
+        {showBadge ? (
+          <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${badge(level)}`}>
+            {icon(level)} {displayLevel(level)}
+          </span>
+        ) : null}
       </div>
 
-      <div className="mt-2 text-3xl font-bold">{loading ? "—/100" : `${score}/100`}</div>
-      <div className="mt-2 text-xs text-white/85">{loading ? "Updating signals..." : explain}</div>
+      <div className="mt-3 text-3xl font-bold">{loading ? "—/100" : `${score}/100`}</div>
+
+      {loading ? (
+        <div className="mt-3 text-sm text-white/85">{loadingNote}</div>
+      ) : (
+        <div className="mt-3 text-xs leading-5 text-white/90">{guide}</div>
+      )}
     </div>
   );
 }
 
-function SectionShell({
-  title,
-  accent,
-  children,
-}: {
-  title: string;
-  accent: "violet" | "amber" | "emerald";
-  children: ReactNode;
-}) {
-  const shell =
-    accent === "violet"
-      ? "from-violet-50 to-fuchsia-50 ring-violet-200"
-      : accent === "amber"
-      ? "from-amber-50 to-orange-50 ring-amber-200"
-      : "from-emerald-50 to-teal-50 ring-emerald-200";
-
-  return (
-    <div className={`rounded-2xl bg-gradient-to-br ${shell} p-4 shadow-sm ring-1`}>
-      <div className="text-lg font-semibold">{title}</div>
-      {children}
-    </div>
-  );
+function normalizePredictionTitle(horizon: string) {
+  const h = horizon.toLowerCase();
+  if (h.includes("1 month") || h.includes("one month") || h.includes("short-term")) {
+    return "Projected Outcomes (~1 month)";
+  }
+  return horizon;
 }
 
 export default function Page() {
@@ -219,53 +241,29 @@ export default function Page() {
   const strategies = output?.strategies ?? [];
   const actionPlan = output?.actionPlan ?? [];
 
+  const hasAgentResult =
+    !!output?.risk ||
+    !!output?.aiInsights?.length ||
+    !!output?.predictions?.length ||
+    !!output?.strategies?.length ||
+    !!output?.actionPlan?.length;
+
+  const showRiskBadge = hasAgentResult;
+
   const stabilityLabel = riskLevel === "high" || riskLevel === "medium" ? "Unstable" : "Stable";
   const alertMessage =
     riskLevel === "high"
-      ? "Immediate mitigation recommended."
+      ? "Urgent action required"
       : riskLevel === "medium"
-      ? "Continue monitoring and prepare mitigations."
-      : "Continue monitoring.";
+      ? "Prepare mitigations"
+      : "Continue monitoring";
 
   const autoEmailMessage =
     riskLevel === "high" ? "Auto-email escalation has been triggered" : "Auto-email escalation has not been triggered";
 
-  const outlookItems = useMemo(() => {
-    const out: Array<{ title: string; body: string; meta?: string }> = [];
-
-    for (const p of predictions.slice(0, 4)) {
-      const horizon = String(p?.horizon ?? "Horizon");
-      const pred = String(p?.prediction ?? "");
-      const conf =
-        typeof p?.confidence === "number"
-          ? `${Math.round(p.confidence * 100)}%`
-          : p?.confidence
-          ? String(p.confidence)
-          : null;
-
-      out.push({
-        title: `🔮 ${horizon}`,
-        body: pred,
-        meta: conf ? `Confidence: ${conf}` : undefined,
-      });
-    }
-
-    for (const s of strategies.slice(0, 6)) {
-      if (typeof s === "string") {
-        out.push({ title: "🧭 Strategy", body: s });
-      } else {
-        const t = String(s?.title ?? "Strategy");
-        const b = String(s?.summary ?? s?.why ?? "");
-        out.push({ title: t.startsWith("🧭") ? t : `🧭 ${t}`, body: b });
-      }
-    }
-
-    return out;
-  }, [predictions, strategies]);
-
   return (
     <div className="space-y-4">
-      <div className="flex items-start justify-between gap-4">
+      <div className="space-y-2">
         <div className="min-w-0">
           <h1 className="text-2xl font-bold">Analytics</h1>
 
@@ -273,7 +271,7 @@ export default function Page() {
             Analyze disruption signals, supply chain exposure, and operational risk using Kairos intelligence.
           </p>
 
-          <div className="mt-1 flex flex-wrap gap-6 text-sm text-gray-600">
+          <div className="mt-2 flex flex-wrap items-center gap-x-6 gap-y-1 text-sm text-gray-600">
             {meta?.sourceFileName ? (
               <span>
                 📄 Dataset: <span className="font-medium">{meta.sourceFileName}</span> ·{" "}
@@ -295,7 +293,7 @@ export default function Page() {
             </span>
           </div>
 
-          <div className="mt-1 flex items-center gap-2 text-sm text-gray-600">
+          <div className="mt-1 flex flex-wrap items-center gap-x-6 gap-y-1 text-sm text-gray-600">
             <span>
               🤖 Agent run as-of: <span className="font-medium">{runAsOf}</span>
             </span>
@@ -303,18 +301,14 @@ export default function Page() {
           </div>
         </div>
 
-        <div className="pt-1 text-sm text-gray-500">
-          <div className="flex w-[370px] items-center justify-end">
-            {updating ? (
-              <div className="flex items-center">
-                <Spinner />
-                <span className="w-[320px] text-right">{statusText(tick)}</span>
-              </div>
-            ) : (
-              <span className="w-[370px]" />
-            )}
+        {updating ? (
+          <div className="flex items-center pt-1 text-sm text-gray-500">
+            <div className="flex items-center">
+              <Spinner />
+              <span className="ml-2">{statusText(tick)}</span>
+            </div>
           </div>
-        </div>
+        ) : null}
       </div>
 
       {error ? <div className="rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</div> : null}
@@ -323,9 +317,11 @@ export default function Page() {
         <div className="rounded-2xl bg-gradient-to-br from-slate-900 via-slate-800 to-slate-700 p-4 text-white shadow-lg">
           <div className="flex items-center justify-between">
             <div className="text-lg font-semibold">🚨 Alert</div>
-            <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${badge(riskLevel)}`}>
-              {icon(riskLevel)} {riskLevel}
-            </span>
+            {showRiskBadge ? (
+              <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${badge(riskLevel)}`}>
+                {icon(riskLevel)} {displayLevel(riskLevel)}
+              </span>
+            ) : null}
           </div>
 
           <div className="mt-2 text-3xl font-bold">{updating ? "—/100" : `${overallScore}/100`}</div>
@@ -335,7 +331,7 @@ export default function Page() {
           </div>
 
           <div className="mt-3 rounded-xl bg-white/10 p-3 text-xs text-white/80">
-            {updating ? "Updating signals..." : autoEmailMessage}
+            {updating ? "Refreshing alert status..." : autoEmailMessage}
           </div>
         </div>
 
@@ -343,32 +339,42 @@ export default function Page() {
           title="☁️ Weather"
           score={weatherScore}
           level={levelFromScore(weatherScore)}
-          explain={scoreExplain("weather")}
-          tone="sky"
+          guide={scoreGuide("weather")}
+          gradient="from-sky-700 via-sky-600 to-cyan-500"
           loading={updating}
+          loadingNote="Refreshing weather forecast signals..."
+          showBadge={showRiskBadge}
         />
 
         <GradientKpiCard
           title="🌍 Geopolitics"
           score={geoScore}
           level={levelFromScore(geoScore)}
-          explain={scoreExplain("geopolitics")}
-          tone="indigo"
+          guide={scoreGuide("geopolitics")}
+          gradient="from-indigo-700 via-violet-600 to-fuchsia-500"
           loading={updating}
+          loadingNote="Reviewing geopolitical developments..."
+          showBadge={showRiskBadge}
         />
 
         <GradientKpiCard
           title="🚚 Logistics"
           score={logisticsScore}
           level={levelFromScore(logisticsScore)}
-          explain={scoreExplain("logistics")}
-          tone="emerald"
+          guide={scoreGuide("logistics")}
+          gradient="from-orange-700 via-amber-600 to-yellow-500"
           loading={updating}
+          loadingNote="Checking transport and route disruptions..."
+          showBadge={showRiskBadge}
         />
       </div>
 
       <SectionShell title="🧠 AI Insights" accent="violet">
-        {insights.length === 0 ? (
+        {updating ? (
+          <div className="mt-3 rounded-xl bg-white/70 p-3 text-sm text-gray-600 shadow-sm ring-1 ring-white/70">
+            Refreshing AI insights and signal summaries...
+          </div>
+        ) : insights.length === 0 ? (
           <div className="mt-2 text-sm text-gray-600">Waiting for first run…</div>
         ) : (
           <div className="mt-3 grid gap-2 md:grid-cols-2">
@@ -382,43 +388,90 @@ export default function Page() {
 
         <div className="mt-4 grid gap-4 lg:grid-cols-3">
           <div className="rounded-2xl bg-gradient-to-br from-sky-50 to-sky-100/60 p-4 ring-1 ring-sky-200">
-            <div className="text-sm font-semibold text-sky-900">☁️ Weather signals</div>
-            <SignalsList items={topWeather} />
+            <div className="text-sm font-semibold text-sky-900">Weather signals</div>
+            <SignalsList items={topWeather} emptyText={updating ? "Refreshing weather signals..." : "No signals yet."} />
           </div>
 
           <div className="rounded-2xl bg-gradient-to-br from-indigo-50 to-indigo-100/60 p-4 ring-1 ring-indigo-200">
-            <div className="text-sm font-semibold text-indigo-900">🌍 Geopolitics signals</div>
-            <SignalsList items={topGeo} />
+            <div className="text-sm font-semibold text-indigo-900">Geopolitics signals</div>
+            <SignalsList items={topGeo} emptyText={updating ? "Refreshing geopolitics signals..." : "No signals yet."} />
           </div>
 
-          <div className="rounded-2xl bg-gradient-to-br from-emerald-50 to-emerald-100/60 p-4 ring-1 ring-emerald-200">
-            <div className="text-sm font-semibold text-emerald-900">🚚 Logistics signals</div>
-            <SignalsList items={topLog} />
+          <div className="rounded-2xl bg-gradient-to-br from-orange-50 to-amber-100/60 p-4 ring-1 ring-orange-200">
+            <div className="text-sm font-semibold text-orange-900">Logistics signals</div>
+            <SignalsList items={topLog} emptyText={updating ? "Refreshing logistics signals..." : "No signals yet."} />
           </div>
         </div>
       </SectionShell>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <SectionShell title="🔮 Outlook & Strategies" accent="amber">
-          {outlookItems.length === 0 ? (
-            <div className="mt-2 text-sm text-gray-600">No outlook items yet.</div>
-          ) : (
-            <div className="mt-3 space-y-3">
-              {outlookItems.map((it, i) => (
-                <div key={i} className="rounded-xl bg-white/70 p-3 shadow-sm ring-1 ring-white/70">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="font-semibold">{it.title}</div>
-                    {it.meta ? <div className="text-xs text-gray-600">{it.meta}</div> : null}
-                  </div>
-                  <div className="mt-2 text-sm text-gray-700">{it.body}</div>
-                </div>
-              ))}
+        <SectionShell title="🧭 Strategies and Predictions" accent="amber">
+          {updating ? (
+            <div className="mt-3 rounded-xl bg-white/70 p-3 text-sm text-gray-600 shadow-sm ring-1 ring-white/70">
+              Updating strategies and projected outcomes...
             </div>
+          ) : (
+            <>
+              <div className="mt-3">
+                <div className="text-sm font-semibold text-amber-900">Strategies</div>
+                {strategies.length === 0 ? (
+                  <div className="mt-2 text-sm text-gray-600">No strategies yet.</div>
+                ) : (
+                  <div className="mt-3 space-y-3">
+                    {strategies.slice(0, 6).map((s: any, i: number) => {
+                      const title = typeof s === "string" ? "Strategy" : String(s?.title ?? "Strategy");
+                      const body = typeof s === "string" ? s : String(s?.summary ?? s?.why ?? "");
+
+                      return (
+                        <div key={i} className="rounded-xl bg-white/70 p-3 shadow-sm ring-1 ring-white/70">
+                          <div className="font-semibold">{title}</div>
+                          <div className="mt-2 text-sm text-gray-700">{body}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-5">
+                <div className="text-sm font-semibold text-amber-900">Predictions</div>
+                {predictions.length === 0 ? (
+                  <div className="mt-2 text-sm text-gray-600">No predictions yet.</div>
+                ) : (
+                  <div className="mt-3 space-y-3">
+                    {predictions.slice(0, 4).map((p: any, i: number) => {
+                      const horizon = normalizePredictionTitle(String(p?.horizon ?? "Horizon"));
+                      const pred = String(p?.prediction ?? "");
+                      const conf =
+                        typeof p?.confidence === "number"
+                          ? `${Math.round(p.confidence * 100)}%`
+                          : p?.confidence
+                          ? String(p.confidence)
+                          : null;
+
+                      return (
+                        <div key={i} className="rounded-xl bg-white/70 p-3 shadow-sm ring-1 ring-white/70">
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="font-semibold">{horizon}</div>
+                            {conf ? <div className="text-xs text-gray-600">Confidence: {conf}</div> : null}
+                          </div>
+                          <div className="mt-2 text-sm text-gray-700">{pred}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </>
           )}
         </SectionShell>
 
-        <SectionShell title="✅ Action Plan" accent="emerald">
-          {Array.isArray(actionPlan) && actionPlan.length > 0 ? (
+        <SectionShell title="✅ Action Plan" accent="green">
+          {updating ? (
+            <div className="mt-3 rounded-xl bg-white/75 p-3 text-sm text-gray-600 shadow-sm ring-1 ring-white/70">
+              Building detailed action plan...
+            </div>
+          ) : Array.isArray(actionPlan) && actionPlan.length > 0 ? (
             <div className="mt-3 space-y-3">
               {actionPlan.slice(0, 12).map((s: any, i: number) => {
                 const stepNum = s?.step ?? i + 1;
