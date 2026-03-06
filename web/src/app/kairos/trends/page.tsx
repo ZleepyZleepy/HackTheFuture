@@ -16,6 +16,8 @@ import {
   Bar,
   Cell,
   Legend,
+  PieChart,
+  Pie,
 } from "recharts";
 import { useKairosData } from "@/components/kairos/useKairosData";
 
@@ -47,6 +49,59 @@ function fmtNum(n: number, digits = 1) {
 function shortLabel(label: string, max = 16) {
   const text = String(label ?? "");
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
+function splitXAxisLabel(label: string, preserveArrow = false, truncate = true) {
+  const text = String(label ?? "").trim();
+  if (!text) return [""];
+
+  const base = truncate ? shortLabel(text, preserveArrow ? 24 : 20) : text;
+  const parts = base.split(" ").filter(Boolean);
+
+  if (!preserveArrow) return parts;
+
+  const lines: string[] = [];
+  for (const part of parts) {
+    if (part === "→") {
+      if (lines.length > 0) {
+        lines[lines.length - 1] = `${lines[lines.length - 1]} ${part}`;
+      } else {
+        lines.push(part);
+      }
+    } else {
+      lines.push(part);
+    }
+  }
+
+  return lines;
+}
+
+function MultilineTick({
+  x,
+  y,
+  payload,
+  preserveArrow = false,
+  truncate = true,
+}: {
+  x?: number;
+  y?: number;
+  payload?: { value?: string };
+  preserveArrow?: boolean;
+  truncate?: boolean;
+}) {
+  const lines = splitXAxisLabel(String(payload?.value ?? ""), preserveArrow, truncate);
+
+  return (
+    <g transform={`translate(${x},${y})`}>
+      <text x={0} y={0} dy={48} textAnchor="middle" fill="#64748b" fontSize={12}>
+        {lines.map((line, i) => (
+          <tspan key={i} x={0} dy={i === 0 ? 0 : 14}>
+            {line}
+          </tspan>
+        ))}
+      </text>
+    </g>
+  );
 }
 
 function KpiCard({
@@ -111,7 +166,7 @@ function FilterGroup({
           onClick={onClear}
           className={`rounded-full px-2 py-1 text-xs ${
             allSelected
-              ? "bg-slate-900 text-white"
+              ? "bg-emerald-600 text-white"
               : "bg-slate-100 text-slate-600 hover:bg-slate-200"
           }`}
         >
@@ -130,7 +185,7 @@ function FilterGroup({
               onClick={() => onToggle(option)}
               className={`rounded-full border px-3 py-1.5 text-xs transition ${
                 active
-                  ? "border-violet-300 bg-violet-100 text-violet-700"
+                  ? "border-emerald-300 bg-emerald-100 text-emerald-700"
                   : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
               }`}
             >
@@ -314,6 +369,8 @@ export default function Page() {
       ? timeSeries.reduce((sum, x) => sum + x.leadGap, 0) / timeSeries.length
       : 0;
 
+    const locationVolumeTotal = locationVolumeBars.reduce((sum, x) => sum + x.value, 0);
+
     return {
       rowCount: filteredRows.length,
       routesInView: new Set(filteredRows.map(routeName)).size,
@@ -323,6 +380,7 @@ export default function Page() {
       topRoutes,
       supplierLeadBars,
       locationVolumeBars,
+      locationVolumeTotal,
     };
   }, [filteredRows]);
 
@@ -541,11 +599,9 @@ export default function Page() {
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis
                   dataKey="name"
-                  tickFormatter={(v) => shortLabel(String(v), 20)}
                   interval={0}
-                  angle={-18}
-                  textAnchor="end"
-                  height={72}
+                  height={120}
+                  tick={<MultilineTick preserveArrow truncate={false} />}
                 />
                 <YAxis tickFormatter={(v) => `${Math.round(Number(v) / 1000)}k`} />
                 <Tooltip formatter={(v) => fmtMoneyCAD(Number(v))} />
@@ -569,11 +625,9 @@ export default function Page() {
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis
                   dataKey="name"
-                  tickFormatter={(v) => shortLabel(String(v), 16)}
                   interval={0}
-                  angle={-18}
-                  textAnchor="end"
-                  height={68}
+                  height={120}
+                  tick={<MultilineTick />}
                 />
                 <YAxis />
                 <Tooltip />
@@ -592,27 +646,60 @@ export default function Page() {
         title="Highest-volume locations"
         subtitle="Top locations by total quantity in the filtered selection"
       >
-        <div className="h-72">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={computed.locationVolumeBars}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis
-                dataKey="name"
-                tickFormatter={(v) => shortLabel(String(v), 16)}
-                interval={0}
-                angle={-18}
-                textAnchor="end"
-                height={68}
-              />
-              <YAxis />
-              <Tooltip />
-              <Bar dataKey="value" radius={[8, 8, 0, 0]}>
-                {computed.locationVolumeBars.map((_, i) => (
-                  <Cell key={i} fill={BAR_COLORS[(i + 1) % BAR_COLORS.length]} />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
+        <div className="grid gap-4 lg:grid-cols-2">
+          <div className="h-72">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={computed.locationVolumeBars}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis
+                  dataKey="name"
+                  interval={0}
+                  height={120}
+                  tick={<MultilineTick />}
+                />
+                <YAxis />
+                <Tooltip />
+                <Bar dataKey="value" radius={[8, 8, 0, 0]}>
+                  {computed.locationVolumeBars.map((_, i) => (
+                    <Cell key={i} fill={BAR_COLORS[(i + 1) % BAR_COLORS.length]} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+
+          <div className="h-72">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={computed.locationVolumeBars}
+                  dataKey="value"
+                  nameKey="name"
+                  cx="50%"
+                  cy="50%"
+                  outerRadius={95}
+                  label={({ name, percent }) =>
+                    `${shortLabel(String(name), 14)} ${fmtNum((Number(percent) || 0) * 100, 0)}%`
+                  }
+                >
+                  {computed.locationVolumeBars.map((_, i) => (
+                    <Cell key={i} fill={BAR_COLORS[(i + 1) % BAR_COLORS.length]} />
+                  ))}
+                </Pie>
+                <Tooltip
+                  formatter={(value: number | string | undefined, _name, props: any) => {
+                    const numeric = Number(value ?? 0);
+                    const pct =
+                      computed.locationVolumeTotal > 0
+                        ? (numeric / computed.locationVolumeTotal) * 100
+                        : 0;
+                    return [`${fmtNum(numeric, 0)} (${fmtNum(pct, 1)}%)`, "Quantity"];
+                  }}
+                />
+                <Legend />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
         </div>
       </SectionCard>
     </div>
