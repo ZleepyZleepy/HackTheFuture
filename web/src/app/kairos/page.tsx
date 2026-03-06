@@ -220,8 +220,11 @@ export default function Page() {
 
       <div className="flex items-start justify-between gap-4">
         <div>
-
           <h1 className="text-2xl font-bold">Overview</h1>
+
+          <p className="text-sm text-gray-600">
+            Key operational metrics, supplier exposure, and inventory risk computed by Kairos.
+          </p>
 
           <div className="mt-1 flex flex-wrap gap-6 text-sm text-gray-600">
 
@@ -242,7 +245,7 @@ export default function Page() {
             </span>
 
             <span>
-              🕒 Updated: <span className="font-medium">{lastUpdated ?? "—"}</span>
+              🕒 Last Updated: <span className="font-medium">{lastUpdated ?? "—"}</span>
             </span>
 
           </div>

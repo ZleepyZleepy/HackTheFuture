@@ -272,6 +272,7 @@ export default function Page() {
           </p>
 
           <div className="mt-2 flex flex-wrap items-center gap-x-6 gap-y-1 text-sm text-gray-600">
+            
             {meta?.sourceFileName ? (
               <span>
                 📄 Dataset: <span className="font-medium">{meta.sourceFileName}</span> ·{" "}
@@ -289,7 +290,7 @@ export default function Page() {
             </span>
 
             <span>
-              🕒 Dataset updated: <span className="font-medium">{datasetUpdated}</span>
+              🕒 Last Updated: <span className="font-medium">{datasetUpdated}</span>
             </span>
           </div>
 
