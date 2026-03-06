@@ -1,13 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
-import { onAuthStateChanged } from "firebase/auth";
-import { collection, getDocs } from "firebase/firestore";
-import { auth, db } from "@/lib/firebase";
-import { loadAgDataFull } from "@/lib/agData";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ResponsiveContainer,
+  AreaChart,
+  Area,
   LineChart,
   Line,
   CartesianGrid,
@@ -16,11 +14,10 @@ import {
   Tooltip,
   BarChart,
   Bar,
-  PieChart,
-  Pie,
   Cell,
   Legend,
 } from "recharts";
+import { useKairosData } from "@/components/kairos/useKairosData";
 
 type AgRow = {
   date: string;
@@ -36,153 +33,321 @@ type AgRow = {
   storageDays: number;
 };
 
-function clamp(n: number, lo: number, hi: number) {
-  return Math.max(lo, Math.min(hi, n));
+function fmtMoneyCAD(n: number) {
+  const value = Number.isFinite(n) ? n : 0;
+  return "$" + value.toLocaleString(undefined, { maximumFractionDigits: 0 });
 }
 
-function money(n: number) {
-  if (!Number.isFinite(n)) return "—";
-  return new Intl.NumberFormat(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
+function fmtNum(n: number, digits = 1) {
+  return new Intl.NumberFormat(undefined, { maximumFractionDigits: digits }).format(
+    Number.isFinite(n) ? n : 0
+  );
 }
+
+function shortLabel(label: string, max = 16) {
+  const text = String(label ?? "");
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
+function KpiCard({
+  title,
+  value,
+  sub,
+  className,
+}: {
+  title: string;
+  value: string;
+  sub: string;
+  className: string;
+}) {
+  return (
+    <div className={`rounded-2xl p-4 text-white shadow-sm ${className}`}>
+      <div className="text-xs opacity-90">{title}</div>
+      <div className="mt-1 text-2xl font-bold">{value}</div>
+      <div className="mt-1 text-xs opacity-90">{sub}</div>
+    </div>
+  );
+}
+
+function SectionCard({
+  title,
+  subtitle,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="rounded-xl bg-white p-4 shadow-sm">
+      <div className="text-lg font-semibold">{title}</div>
+      {subtitle ? <div className="mt-1 text-sm text-gray-600">{subtitle}</div> : null}
+      <div className="mt-3">{children}</div>
+    </section>
+  );
+}
+
+function FilterGroup({
+  label,
+  options,
+  selected,
+  onToggle,
+  onClear,
+}: {
+  label: string;
+  options: string[];
+  selected: string[];
+  onToggle: (value: string) => void;
+  onClear: () => void;
+}) {
+  const allSelected = selected.length === 0;
+
+  return (
+    <div>
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <div className="text-xs font-medium text-gray-600">{label}</div>
+        <button
+          type="button"
+          onClick={onClear}
+          className={`rounded-full px-2 py-1 text-xs ${
+            allSelected
+              ? "bg-slate-900 text-white"
+              : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+          }`}
+        >
+          All
+        </button>
+      </div>
+
+      <div className="flex max-h-36 flex-wrap gap-2 overflow-y-auto pr-1">
+        {options.map((option) => {
+          const active = selected.includes(option);
+
+          return (
+            <button
+              key={option}
+              type="button"
+              onClick={() => onToggle(option)}
+              className={`rounded-full border px-3 py-1.5 text-xs transition ${
+                active
+                  ? "border-violet-300 bg-violet-100 text-violet-700"
+                  : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+              }`}
+            >
+              {option}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function toggleInArray(arr: string[], value: string) {
+  return arr.includes(value) ? arr.filter((x) => x !== value) : [...arr, value];
+}
+
+const BAR_COLORS = ["#3b82f6", "#8b5cf6", "#10b981", "#f59e0b", "#ef4444", "#06b6d4"];
 
 export default function Page() {
-  const [rows, setRows] = useState<AgRow[]>([]);
-  const [meta, setMeta] = useState<{ sourceFileName: string | null; count: number | null; updatedAt: Date | null } | null>(null);
+  const { meta, rows, insiderCount, loading, error, reload } = useKairosData();
 
-  const [uid, setUid] = useState<string | null>(null);
-  const [insiderCount, setInsiderCount] = useState(0);
+  const loadingRef = useRef(loading);
 
-  // filters
-  const [location, setLocation] = useState<string>("All");
-  const [supplier, setSupplier] = useState<string>("All");
-  const [product, setProduct] = useState<string>("All");
-
-  const [hasRun, setHasRun] = useState(false);
-  const [updating, setUpdating] = useState(false);
-
-  useEffect(() => onAuthStateChanged(auth, (u) => setUid(u?.uid ?? null)), []);
-  useEffect(() => {
-    loadAgDataFull()
-      .then(({ meta, rows }) => {
-        setMeta(meta ?? null);
-        setRows((rows ?? []) as any);
-      })
-      .catch(() => {
-        setMeta(null);
-        setRows([]);
-      });
-  }, []);
+  const [selectedLocations, setSelectedLocations] = useState<string[]>([]);
+  const [selectedSuppliers, setSelectedSuppliers] = useState<string[]>([]);
+  const [selectedProducts, setSelectedProducts] = useState<string[]>([]);
 
   useEffect(() => {
-    if (!uid) return;
-    getDocs(collection(db, "users", uid, "insiderSources"))
-      .then((snap) => setInsiderCount(snap.size))
-      .catch(() => setInsiderCount(0));
-  }, [uid]);
+    loadingRef.current = loading;
+  }, [loading]);
+
+  useEffect(() => {
+    if (!reload) return;
+
+    const safeReload = () => {
+      if (!loadingRef.current) reload();
+    };
+
+    window.addEventListener("storage", safeReload);
+    window.addEventListener("kairos:data_updated", safeReload as any);
+    window.addEventListener("kairos:insiders_updated", safeReload as any);
+    window.addEventListener("kairos:agent_ran", safeReload as any);
+
+    const id = setInterval(safeReload, 4000);
+
+    return () => {
+      window.removeEventListener("storage", safeReload);
+      window.removeEventListener("kairos:data_updated", safeReload as any);
+      window.removeEventListener("kairos:insiders_updated", safeReload as any);
+      window.removeEventListener("kairos:agent_ran", safeReload as any);
+      clearInterval(id);
+    };
+  }, [reload]);
 
   const filterOptions = useMemo(() => {
-    const locs = new Set<string>();
-    const sups = new Set<string>();
-    const prods = new Set<string>();
-    for (const r of rows ?? []) {
-      if (r.location) locs.add(r.location);
-      if (r.supplier) sups.add(r.supplier);
-      if (r.product) prods.add(r.product);
+    const locations = new Set<string>();
+    const suppliers = new Set<string>();
+    const products = new Set<string>();
+
+    for (const r of (rows ?? []) as AgRow[]) {
+      if (r.location) locations.add(r.location);
+      if (r.supplier) suppliers.add(r.supplier);
+      if (r.product) products.add(r.product);
     }
-    const sort = (a: string, b: string) => a.localeCompare(b);
+
     return {
-      locations: ["All", ...Array.from(locs).sort(sort)],
-      suppliers: ["All", ...Array.from(sups).sort(sort)],
-      products: ["All", ...Array.from(prods).sort(sort)],
+      locations: Array.from(locations).sort((a, b) => a.localeCompare(b)),
+      suppliers: Array.from(suppliers).sort((a, b) => a.localeCompare(b)),
+      products: Array.from(products).sort((a, b) => a.localeCompare(b)),
     };
   }, [rows]);
 
-  const filtered = useMemo(() => {
-    return (rows ?? []).filter((r) => {
-      if (location !== "All" && r.location !== location) return false;
-      if (supplier !== "All" && r.supplier !== supplier) return false;
-      if (product !== "All" && r.product !== product) return false;
+  const filteredRows = useMemo(() => {
+    return ((rows ?? []) as AgRow[]).filter((r) => {
+      if (selectedLocations.length > 0 && !selectedLocations.includes(r.location)) return false;
+      if (selectedSuppliers.length > 0 && !selectedSuppliers.includes(r.supplier)) return false;
+      if (selectedProducts.length > 0 && !selectedProducts.includes(r.product)) return false;
       return true;
     });
-  }, [rows, location, supplier, product]);
+  }, [rows, selectedLocations, selectedSuppliers, selectedProducts]);
 
   const computed = useMemo(() => {
-    const safe = filtered ?? [];
-    const spend = (r: any) => (Number(r.quantity) || 0) * (Number(r.costPerUnit) || 0);
+    const spend = (r: AgRow) => (Number(r.quantity) || 0) * (Number(r.costPerUnit) || 0);
+    const routeName = (r: AgRow) =>
+      [r.routeStart, r.routeEnd].filter(Boolean).join(" → ") || "Unknown";
 
-    const totalSpend = safe.reduce((s, r) => s + spend(r), 0);
-    const avgLeadTime = safe.length ? safe.reduce((s, r) => s + (Number(r.leadTimeDays) || 0), 0) / safe.length : 0;
-    const avgStorage = safe.length ? safe.reduce((s, r) => s + (Number(r.storageDays) || 0), 0) / safe.length : 0;
-    const stockoutRiskPct = clamp(((avgLeadTime - avgStorage) / 20) * 100, 0, 100);
+    const byDate = new Map<
+      string,
+      {
+        date: string;
+        spend: number;
+        quantity: number;
+        cpuSum: number;
+        cpuCount: number;
+        leadSum: number;
+        leadCount: number;
+        storageSum: number;
+        storageCount: number;
+      }
+    >();
 
-    // time series
-    const series = [...safe]
-      .slice()
-      .sort((a, b) => String(a.date).localeCompare(String(b.date)))
-      .map((r) => ({
-        date: String(r.date),
-        leadTimeDays: Number(r.leadTimeDays) || 0,
-        storageDays: Number(r.storageDays) || 0,
-        spend: spend(r),
-      }));
+    const byRoute = new Map<string, number>();
+    const supplierLead = new Map<string, { total: number; count: number }>();
+    const locationQuantity = new Map<string, number>();
 
-    // aggregations
-    const bySupplier = new Map<string, number>();
-    const byProduct = new Map<string, number>();
-    const byLocation = new Map<string, number>();
+    for (const r of filteredRows) {
+      const spendValue = spend(r);
+      const key = String(r.date || "Unknown");
 
-    for (const r of safe) {
-      bySupplier.set(r.supplier ?? "Unknown", (bySupplier.get(r.supplier ?? "Unknown") ?? 0) + spend(r));
-      byProduct.set(r.product ?? "Unknown", (byProduct.get(r.product ?? "Unknown") ?? 0) + spend(r));
-      byLocation.set(r.location ?? "Unknown", (byLocation.get(r.location ?? "Unknown") ?? 0) + spend(r));
+      const current = byDate.get(key) ?? {
+        date: key,
+        spend: 0,
+        quantity: 0,
+        cpuSum: 0,
+        cpuCount: 0,
+        leadSum: 0,
+        leadCount: 0,
+        storageSum: 0,
+        storageCount: 0,
+      };
+
+      current.spend += spendValue;
+      current.quantity += Number(r.quantity) || 0;
+      current.cpuSum += Number(r.costPerUnit) || 0;
+      current.cpuCount += 1;
+      current.leadSum += Number(r.leadTimeDays) || 0;
+      current.leadCount += 1;
+      current.storageSum += Number(r.storageDays) || 0;
+      current.storageCount += 1;
+
+      byDate.set(key, current);
+
+      const route = routeName(r);
+      byRoute.set(route, (byRoute.get(route) ?? 0) + spendValue);
+
+      const supplierKey = r.supplier || "Unknown";
+      const supplierCurrent = supplierLead.get(supplierKey) ?? { total: 0, count: 0 };
+      supplierCurrent.total += Number(r.leadTimeDays) || 0;
+      supplierCurrent.count += 1;
+      supplierLead.set(supplierKey, supplierCurrent);
+
+      const locationKey = r.location || "Unknown";
+      locationQuantity.set(locationKey, (locationQuantity.get(locationKey) ?? 0) + (Number(r.quantity) || 0));
     }
 
-    const topN = (m: Map<string, number>, n: number) =>
-      [...m.entries()]
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, n)
-        .map(([name, value]) => ({ name, value }));
+    const timeSeries = [...byDate.values()]
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .map((d) => ({
+        date: d.date,
+        spend: d.spend,
+        quantity: d.quantity,
+        avgCostPerUnit: d.cpuCount ? d.cpuSum / d.cpuCount : 0,
+        leadGap:
+          (d.leadCount ? d.leadSum / d.leadCount : 0) -
+          (d.storageCount ? d.storageSum / d.storageCount : 0),
+      }));
 
-    const supplierBars = topN(bySupplier, 8);
-    const productBars = topN(byProduct, 8);
-    const locationPie = topN(byLocation, 6);
+    const topRoutes = [...byRoute.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 6)
+      .map(([name, value]) => ({ name, value }));
+
+    const supplierLeadBars = [...supplierLead.entries()]
+      .map(([name, value]) => ({
+        name,
+        value: value.count ? value.total / value.count : 0,
+      }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 6);
+
+    const locationVolumeBars = [...locationQuantity.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 6)
+      .map(([name, value]) => ({ name, value }));
+
+    const avgCostPerUnit = filteredRows.length
+      ? filteredRows.reduce((sum, r) => sum + (Number(r.costPerUnit) || 0), 0) / filteredRows.length
+      : 0;
+
+    const avgGap = timeSeries.length
+      ? timeSeries.reduce((sum, x) => sum + x.leadGap, 0) / timeSeries.length
+      : 0;
 
     return {
-      totalSpend,
-      avgLeadTime,
-      avgStorage,
-      stockoutRiskPct,
-      series,
-      supplierBars,
-      productBars,
-      locationPie,
-      rowCount: safe.length,
+      rowCount: filteredRows.length,
+      routesInView: new Set(filteredRows.map(routeName)).size,
+      avgCostPerUnit,
+      avgGap,
+      timeSeries,
+      topRoutes,
+      supplierLeadBars,
+      locationVolumeBars,
     };
-  }, [filtered]);
+  }, [filteredRows]);
 
-  async function runTrends() {
-    setUpdating(true);
-    // (optional) tiny delay so "Updating..." is visible even if calc is instant
-    await new Promise((r) => setTimeout(r, 150));
-    setHasRun(true);
-    setUpdating(false);
-  }
-
-  // recharts wants some colors — keep it Kairos-ish but add red/green too
-  const PIE_COLORS = ["#4880ff", "#00b69b", "#fcbe2d", "#fd5454", "#7c3aed", "#0ea5e9"];
+  const lastUpdated =
+    meta?.updatedAt instanceof Date
+      ? meta.updatedAt.toLocaleString()
+      : meta?.updatedAt
+      ? new Date(meta.updatedAt as any).toLocaleString()
+      : "—";
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <div className="text-xs text-slate-500">Trends</div>
-          <h1 className="mt-1 text-2xl font-bold text-slate-900">📈 Kairos Trends</h1>
+          <h1 className="text-2xl font-bold">Trends</h1>
 
-          <div className="mt-2 flex flex-wrap items-center gap-6 text-xs text-slate-500">
+          <p className="text-sm text-gray-600">
+            Explore historical movement across spend, quantity, pricing, routes, and supplier lead-time patterns.
+          </p>
+
+          <div className="mt-1 flex flex-wrap gap-6 text-sm text-gray-600">
             {meta?.sourceFileName ? (
               <span>
                 📄 Dataset: <span className="font-medium">{meta.sourceFileName}</span> ·{" "}
-                <span className="font-medium">{meta.count ?? 0}</span> rows
+                <span className="font-medium">{meta.count ?? rows.length}</span> rows
               </span>
             ) : (
               <span>📄 Dataset: —</span>
@@ -194,270 +359,262 @@ export default function Page() {
                 (manage)
               </Link>
             </span>
+
+            <span>
+              🕒 Last Updated: <span className="font-medium">{lastUpdated}</span>
+            </span>
           </div>
         </div>
+      </div>
 
-        <button
-          className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
-          onClick={runTrends}
-          disabled={updating}
+      {error ? <div className="text-sm text-red-600">{error}</div> : null}
+
+      <SectionCard
+        title="Filters"
+        subtitle="Select multiple locations, suppliers, and products to shape the trend view"
+      >
+        <div className="grid gap-4 lg:grid-cols-3">
+          <FilterGroup
+            label="Locations"
+            options={filterOptions.locations}
+            selected={selectedLocations}
+            onToggle={(value) => setSelectedLocations((prev) => toggleInArray(prev, value))}
+            onClear={() => setSelectedLocations([])}
+          />
+
+          <FilterGroup
+            label="Suppliers"
+            options={filterOptions.suppliers}
+            selected={selectedSuppliers}
+            onToggle={(value) => setSelectedSuppliers((prev) => toggleInArray(prev, value))}
+            onClear={() => setSelectedSuppliers([])}
+          />
+
+          <FilterGroup
+            label="Products"
+            options={filterOptions.products}
+            selected={selectedProducts}
+            onToggle={(value) => setSelectedProducts((prev) => toggleInArray(prev, value))}
+            onClear={() => setSelectedProducts([])}
+          />
+        </div>
+      </SectionCard>
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <KpiCard
+          title="Rows in View"
+          value={fmtNum(computed.rowCount, 0)}
+          sub="Filtered records"
+          className="bg-gradient-to-br from-slate-700 to-slate-900"
+        />
+        <KpiCard
+          title="Routes in View"
+          value={fmtNum(computed.routesInView, 0)}
+          sub="Active route combinations"
+          className="bg-gradient-to-br from-blue-600 to-cyan-600"
+        />
+        <KpiCard
+          title="Average Unit Cost"
+          value={fmtMoneyCAD(computed.avgCostPerUnit)}
+          sub="Mean cost per unit"
+          className="bg-gradient-to-br from-violet-600 to-fuchsia-600"
+        />
+        <KpiCard
+          title="Average Coverage Gap"
+          value={`${fmtNum(computed.avgGap)} days`}
+          sub="Lead time minus storage"
+          className="bg-gradient-to-br from-amber-500 to-orange-600"
+        />
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <SectionCard
+          title="Spend trend"
+          subtitle="How total spend changes over time inside the filtered view"
         >
-          {updating ? "Updating..." : "🚀 Update agent analysis"}
-        </button>
+          <div className="h-72">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={computed.timeSeries}>
+                <defs>
+                  <linearGradient id="spendFillTrend" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.32} />
+                    <stop offset="95%" stopColor="#3b82f6" stopOpacity={0.05} />
+                  </linearGradient>
+                </defs>
+
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="date" />
+                <YAxis tickFormatter={(v) => `${Math.round(Number(v) / 1000)}k`} />
+                <Tooltip formatter={(v) => fmtMoneyCAD(Number(v))} />
+
+                <Area
+                  type="monotone"
+                  dataKey="spend"
+                  stroke="#2563eb"
+                  strokeWidth={3}
+                  fill="url(#spendFillTrend)"
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </SectionCard>
+
+        <SectionCard
+          title="Quantity trend"
+          subtitle="Movement in total shipped or ordered quantity over time"
+        >
+          <div className="h-72">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={computed.timeSeries}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="date" />
+                <YAxis />
+                <Tooltip />
+                <Line
+                  type="monotone"
+                  dataKey="quantity"
+                  stroke="#10b981"
+                  strokeWidth={3}
+                  name="Quantity"
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </SectionCard>
+
+        <SectionCard
+          title="Average unit cost trend"
+          subtitle="Track how pricing shifts across the filtered selection"
+        >
+          <div className="h-72">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={computed.timeSeries}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="date" />
+                <YAxis tickFormatter={(v) => `$${Number(v).toFixed(0)}`} />
+                <Tooltip formatter={(v) => fmtMoneyCAD(Number(v))} />
+                <Line
+                  type="monotone"
+                  dataKey="avgCostPerUnit"
+                  stroke="#8b5cf6"
+                  strokeWidth={3}
+                  name="Avg Cost / Unit"
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </SectionCard>
+
+        <SectionCard
+          title="Coverage gap trend"
+          subtitle="Positive values mean lead time is outpacing storage coverage"
+        >
+          <div className="h-72">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={computed.timeSeries}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="date" />
+                <YAxis />
+                <Tooltip />
+                <Legend />
+                <Line
+                  type="monotone"
+                  dataKey="leadGap"
+                  stroke="#ef4444"
+                  strokeWidth={3}
+                  name="Coverage Gap"
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </SectionCard>
       </div>
 
-      {/* Filters */}
-      <section className="rounded-xl border bg-white p-5">
-        <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-          <div>
-            <h2 className="text-sm font-bold text-slate-900">🔎 Filters</h2>
-            <p className="mt-1 text-sm text-slate-600">
-              Slice your dataset by location, supplier, and product.
-            </p>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <SectionCard
+          title="Top routes by spend"
+          subtitle="Most expensive route combinations in the current filtered view"
+        >
+          <div className="h-72">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={computed.topRoutes}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis
+                  dataKey="name"
+                  tickFormatter={(v) => shortLabel(String(v), 20)}
+                  interval={0}
+                  angle={-18}
+                  textAnchor="end"
+                  height={72}
+                />
+                <YAxis tickFormatter={(v) => `${Math.round(Number(v) / 1000)}k`} />
+                <Tooltip formatter={(v) => fmtMoneyCAD(Number(v))} />
+                <Bar dataKey="value" radius={[8, 8, 0, 0]}>
+                  {computed.topRoutes.map((_, i) => (
+                    <Cell key={i} fill={BAR_COLORS[i % BAR_COLORS.length]} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
           </div>
+        </SectionCard>
 
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <label className="text-xs text-slate-600">
-              Location
-              <select
-                className="mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm text-slate-900"
-                value={location}
-                onChange={(e) => setLocation(e.target.value)}
-              >
-                {filterOptions.locations.map((x) => (
-                  <option key={x} value={x}>
-                    {x}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label className="text-xs text-slate-600">
-              Supplier
-              <select
-                className="mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm text-slate-900"
-                value={supplier}
-                onChange={(e) => setSupplier(e.target.value)}
-              >
-                {filterOptions.suppliers.map((x) => (
-                  <option key={x} value={x}>
-                    {x}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label className="text-xs text-slate-600">
-              Product
-              <select
-                className="mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm text-slate-900"
-                value={product}
-                onChange={(e) => setProduct(e.target.value)}
-              >
-                {filterOptions.products.map((x) => (
-                  <option key={x} value={x}>
-                    {x}
-                  </option>
-                ))}
-              </select>
-            </label>
+        <SectionCard
+          title="Suppliers with longest lead times"
+          subtitle="Average lead-time ranking for the current filtered selection"
+        >
+          <div className="h-72">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={computed.supplierLeadBars}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis
+                  dataKey="name"
+                  tickFormatter={(v) => shortLabel(String(v), 16)}
+                  interval={0}
+                  angle={-18}
+                  textAnchor="end"
+                  height={68}
+                />
+                <YAxis />
+                <Tooltip />
+                <Bar dataKey="value" radius={[8, 8, 0, 0]}>
+                  {computed.supplierLeadBars.map((_, i) => (
+                    <Cell key={i} fill={BAR_COLORS[(i + 2) % BAR_COLORS.length]} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
           </div>
-        </div>
-
-        <div className="mt-4 flex flex-wrap gap-3 text-sm text-slate-700">
-          <div className="rounded-lg border bg-slate-50 px-3 py-2">📦 Rows in view: <span className="font-semibold">{computed.rowCount}</span></div>
-          <div className="rounded-lg border bg-slate-50 px-3 py-2">💰 Spend: <span className="font-semibold">{money(computed.totalSpend)}</span></div>
-          <div className="rounded-lg border bg-slate-50 px-3 py-2">⏱ Avg lead time: <span className="font-semibold">{computed.avgLeadTime.toFixed(1)}d</span></div>
-          <div className="rounded-lg border bg-slate-50 px-3 py-2">🧊 Avg storage: <span className="font-semibold">{computed.avgStorage.toFixed(1)}d</span></div>
-          <div className="rounded-lg border bg-slate-50 px-3 py-2">🚨 Stockout probability: <span className="font-semibold">{Math.round(computed.stockoutRiskPct)}%</span></div>
-        </div>
-
-        {!hasRun ? (
-          <p className="mt-3 text-sm text-slate-500">
-            Charts load immediately, but click <span className="font-semibold">Update</span> to “lock in” the latest analysis state.
-          </p>
-        ) : null}
-      </section>
-
-      {/* Charts */}
-      <div className="space-y-4">
-        {/* Row 1: 50/50 */}
-        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-          {/* Lead time vs storage */}
-          <section className="rounded-xl border bg-white p-5">
-            <h2 className="text-sm font-bold text-slate-900">⏱ Lead Time vs Storage Coverage (over time)</h2>
-            <p className="mt-1 text-sm text-slate-600">Watch for divergence — that’s where stockouts form.</p>
-
-            <div className="mt-4 h-[320px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={computed.series}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="date" tick={{ fontSize: 12 }} />
-                  <YAxis tick={{ fontSize: 12 }} />
-                  <Tooltip />
-                  <Legend />
-                  <Line type="monotone" dataKey="leadTimeDays" name="Lead Time (days)" stroke="#fd5454" strokeWidth={2} dot={false} />
-                  <Line type="monotone" dataKey="storageDays" name="Storage (days)" stroke="#00b69b" strokeWidth={2} dot={false} />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </section>
-
-          {/* Location exposure pie */}
-          <section className="rounded-xl border bg-white p-5">
-            <h2 className="text-sm font-bold text-slate-900">🗺 Exposure by Location</h2>
-            <p className="mt-1 text-sm text-slate-600">Where your spend concentrates (risk surface).</p>
-
-            <div className="mt-4 h-[320px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={computed.locationPie}
-                    dataKey="value"
-                    nameKey="name"
-                    outerRadius={105}
-                    label={(p) => `${p.name}`}
-                  >
-                    {computed.locationPie.map((_, idx) => (
-                      <Cell key={idx} fill={PIE_COLORS[idx % PIE_COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip formatter={(v: any) => money(Number(v) || 0)} />
-                  <Legend />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-          </section>
-        </div>
-
-        {/* Row 2: 50/50 */}
-        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-          {/* Supplier bars */}
-          <section className="rounded-xl border bg-white p-5">
-            <h2 className="text-sm font-bold text-slate-900">🏭 Supplier Exposure (Top)</h2>
-            <p className="mt-1 text-sm text-slate-600">Concentration risk → escalation trigger.</p>
-
-            <div className="mt-4 h-[320px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={computed.supplierBars}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="name" tick={{ fontSize: 12 }} interval={0} angle={-15} textAnchor="end" height={60} />
-                  <YAxis tick={{ fontSize: 12 }} />
-                  <Tooltip formatter={(v: any) => money(Number(v) || 0)} />
-                  <Bar dataKey="value" name="Spend" fill="#4880ff" radius={[8, 8, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </section>
-
-          {/* Product bars */}
-          <section className="rounded-xl border bg-white p-5">
-            <h2 className="text-sm font-bold text-slate-900">📦 Product Exposure (Top)</h2>
-            <p className="mt-1 text-sm text-slate-600">Which inputs dominate your burn.</p>
-
-            <div className="mt-4 h-[320px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={computed.productBars}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="name" tick={{ fontSize: 12 }} interval={0} angle={-15} textAnchor="end" height={60} />
-                  <YAxis tick={{ fontSize: 12 }} />
-                  <Tooltip formatter={(v: any) => money(Number(v) || 0)} />
-                  <Bar dataKey="value" name="Spend" fill="#00b69b" radius={[8, 8, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </section>
-        </div>
+        </SectionCard>
       </div>
+
+      <SectionCard
+        title="Highest-volume locations"
+        subtitle="Top locations by total quantity in the filtered selection"
+      >
+        <div className="h-72">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={computed.locationVolumeBars}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis
+                dataKey="name"
+                tickFormatter={(v) => shortLabel(String(v), 16)}
+                interval={0}
+                angle={-18}
+                textAnchor="end"
+                height={68}
+              />
+              <YAxis />
+              <Tooltip />
+              <Bar dataKey="value" radius={[8, 8, 0, 0]}>
+                {computed.locationVolumeBars.map((_, i) => (
+                  <Cell key={i} fill={BAR_COLORS[(i + 1) % BAR_COLORS.length]} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </SectionCard>
     </div>
   );
 }
-
-
-
-// "use client";
-
-// import Link from "next/link";
-// import { useKairosData } from "@/components/kairos/useKairosData";
-// import { useKairosSignals } from "@/components/kairos/useKairosSignals";
-
-// export default function KairosTrendsPage() {
-//   const { meta, rows, insiderCount } = useKairosData();
-//   const { signals, updating, error, updateSignals } = useKairosSignals(rows);
-
-//   return (
-//     <div className="space-y-4">
-//       <div className="flex items-start justify-between gap-4">
-//         <div>
-//           <h1 className="text-2xl font-bold">📈 Kairos Trends</h1>
-
-//           <div className="mt-1 flex flex-wrap gap-6 text-sm text-gray-600">
-//             {meta?.sourceFileName ? (
-//               <span>
-//                 📄 Dataset: <span className="font-medium">{meta.sourceFileName}</span> ·{" "}
-//                 <span className="font-medium">{meta.count ?? 0}</span> rows
-//               </span>
-//             ) : (
-//               <span>📄 Dataset: —</span>
-//             )}
-
-//             <span>
-//               🕵️ Insider Sources: <span className="font-medium">{insiderCount}</span>{" "}
-//               <Link href="/kairos/sources" className="hover:underline">
-//                 (manage)
-//               </Link>
-//             </span>
-//           </div>
-//         </div>
-
-//         <button
-//           onClick={updateSignals}
-//           disabled={updating || !rows.length}
-//           className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
-//           title={!rows.length ? "Upload a dataset first" : undefined}
-//         >
-//           {updating ? "Updating..." : "Update"}
-//         </button>
-//       </div>
-
-//       {error ? <div className="text-sm text-red-600">{error}</div> : null}
-
-//       {/* You can feed `rows` into your deeper charts; signals are extra overlays */}
-//       <div className="grid gap-4 lg:grid-cols-2">
-//         <div className="rounded-xl bg-white p-4 shadow-sm">
-//           <div className="text-lg font-semibold">☁️ Weather by Location</div>
-//           <div className="mt-2 text-sm text-gray-700">
-//             {signals ? (
-//               <ul className="space-y-1">
-//                 {signals.weather.locations.slice(0, 6).map((x) => (
-//                   <li key={x.location}>
-//                     • {x.location}: <span className="font-semibold">{x.risk}/100</span>
-//                     {typeof x.tempC === "number" ? ` · ${Math.round(x.tempC)}°C` : ""}
-//                     {typeof x.windMps === "number" ? ` · ${Math.round(x.windMps)} m/s` : ""}
-//                   </li>
-//                 ))}
-//               </ul>
-//             ) : (
-//               "Click Update to load location signals."
-//             )}
-//           </div>
-//         </div>
-
-//         <div className="rounded-xl bg-white p-4 shadow-sm">
-//           <div className="text-lg font-semibold">🌍 Geopolitics Trend Proxy</div>
-//           <div className="mt-2 text-sm text-gray-700">
-//             {signals ? (
-//               <>
-//                 Risk score: <span className="font-semibold">{signals.geopolitics.riskScore}/100</span>
-//                 <br />
-//                 Articles: <span className="font-semibold">{signals.geopolitics.articles.length}</span>
-//               </>
-//             ) : (
-//               "Click Update to load geopolitics signals."
-//             )}
-//           </div>
-//         </div>
-//       </div>
-//     </div>
-//   );
-// }

@@ -20,21 +20,101 @@ function clamp(n: number, lo: number, hi: number) {
 
 export type KairosAdkOutput = {
   signals?: {
-    weatherSignals?: any[];
-    geoSignals?: any[];
-    logisticsSignals?: any[];
-    insiderSignals?: any[];
+    weatherSignals?: Array<{
+      title?: string;
+      summary?: string;
+      location?: string;
+      timeWindow?: string;
+      severity?: number;
+      evidence?: string[];
+    }>;
+    geoSignals?: Array<{
+      title?: string;
+      summary?: string;
+      region?: string;
+      severity?: number;
+      links?: string[];
+      evidence?: string[];
+    }>;
+    logisticsSignals?: Array<{
+      title?: string;
+      summary?: string;
+      corridor?: string;
+      severity?: number;
+      links?: string[];
+      evidence?: string[];
+    }>;
+    insiderSignals?: Array<{
+      title?: string;
+      summary?: string;
+      severity?: number;
+      evidence?: string[];
+    }>;
   };
   risk?: {
     overallScore?: number;
     level?: "low" | "medium" | "high";
-    breakdown?: Record<string, number>;
+    breakdown?: {
+      weather?: number;
+      geopolitics?: number;
+      logistics?: number;
+      insider?: number;
+    };
     why?: string[];
   };
   aiInsights?: string[];
-  predictions?: any[];
-  strategies?: any[];
-  actionPlan?: any[];
+  predictions?: Array<{
+    category?: "short_term" | "long_term";
+    horizon?: string;
+    title?: string;
+    prediction?: string;
+    confidence?: number;
+    drivers?: string[];
+  }>;
+  strategies?: Array<{
+    title?: string;
+    summary?: string;
+    effectiveness?: number;
+  }>;
+  actionPlan?: Array<{
+    step?: number;
+    do?: string;
+    details?: string;
+  }>;
+  finance?: {
+    currentRevenue?: number;
+    currentCost?: number;
+    currentProfit?: number;
+    marginPct?: number;
+    potentialSavings?: number;
+    lossAvoidance?: number;
+    addedValue?: number;
+    profitLiftPct?: number;
+    monthlyTrend?: Array<{
+      month?: string;
+      revenue?: number;
+      cost?: number;
+      profit?: number;
+    }>;
+    savingsDrivers?: Array<{
+      name?: string;
+      value?: number;
+    }>;
+    profitScenario?: Array<{
+      stage?: string;
+      value?: number;
+    }>;
+    marginTrend?: Array<{
+      month?: string;
+      margin?: number;
+    }>;
+    opportunities?: Array<{
+      title?: string;
+      impact?: string;
+      type?: string;
+      detail?: string;
+    }>;
+  };
 };
 
 function computeSummary(rows: any[]) {

@@ -4,8 +4,10 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useKairosAgent } from "@/components/kairos/useKairosAgent";
 
-function displayLevel(level: string) {
-  return level === "medium" ? "moderate" : level;
+function formatPredictionHorizon(horizon: string) {
+  const text = String(horizon ?? "").trim().replace(/\b[A-Z]{2,}\b/g, (word) => word.toLowerCase());
+  if (!text) return "~ horizon";
+  return text.startsWith("~") ? text : `~ ${text}`;
 }
 
 function badge(level: string) {
@@ -145,7 +147,7 @@ function GradientKpiCard({
         <div className="text-lg font-semibold">{title}</div>
         {showBadge ? (
           <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${badge(level)}`}>
-            {icon(level)} {displayLevel(level)}
+            {icon(level)}{level}
           </span>
         ) : null}
       </div>
@@ -159,14 +161,6 @@ function GradientKpiCard({
       )}
     </div>
   );
-}
-
-function normalizePredictionTitle(horizon: string) {
-  const h = horizon.toLowerCase();
-  if (h.includes("1 month") || h.includes("one month") || h.includes("short-term")) {
-    return "Projected Outcomes (~1 month)";
-  }
-  return horizon;
 }
 
 export default function Page() {
@@ -289,7 +283,7 @@ export default function Page() {
             </span>
 
             <span>
-              🕒 Last Updated: <span className="font-medium">{datasetUpdated}</span>
+              🕒 Last updated: <span className="font-medium">{datasetUpdated}</span>
             </span>
           </div>
 
@@ -319,7 +313,7 @@ export default function Page() {
             <div className="text-lg font-semibold">🚨 Alert</div>
             {showRiskBadge ? (
               <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${badge(riskLevel)}`}>
-                {icon(riskLevel)} {displayLevel(riskLevel)}
+                {icon(riskLevel)}{riskLevel}
               </span>
             ) : null}
           </div>
@@ -451,7 +445,7 @@ export default function Page() {
                 ) : (
                   <div className="mt-3 space-y-3">
                     {predictions.slice(0, 6).map((p: any, i: number) => {
-                      const horizon = normalizePredictionTitle(String(p?.horizon ?? "Horizon"));
+                      const horizon = formatPredictionHorizon(String(p?.horizon ?? "Horizon"));
                       const title = String(p?.title ?? horizon);
                       const pred = String(p?.prediction ?? "");
                       const conf =
@@ -467,7 +461,7 @@ export default function Page() {
                             <div className="font-semibold">{title}</div>
                             {conf ? <div className="text-xs text-gray-600">Confidence: {conf}</div> : null}
                           </div>
-                          <div className="mt-1 text-xs font-medium uppercase tracking-wide text-gray-500">
+                          <div className="mt-1 text-xs font-medium tracking-wide text-gray-500">
                             {horizon}
                           </div>
                           <div className="mt-2 text-sm leading-6 text-gray-700">{pred}</div>
