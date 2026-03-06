@@ -13,10 +13,11 @@ export default function KairosShell({ children }: { children: React.ReactNode })
   const nav = [
     { label: "Dashboard", href: "/kairos", icon: "" },
     { label: "Analytics", href: "/kairos/analytics", icon: "" },
+    { label: "Finances", href: "/kairos/finances", icon: "" },
     { label: "Trends", href: "/kairos/trends", icon: "" },
-    { label: "Data Upload", href: "/kairos/data", icon: "" },
+    { label: "Simulations", href: "/kairos/simulations", icon: "" },
+    { label: "Data Upload", href: "/kairos/data", icon: "", spacer: true },
     { label: "Insider Sources", href: "/kairos/sources", icon: "" },
-    { label: "Run History", href: "/kairos/history", icon: "" },
   ];
 
   async function handleSignOut() {
@@ -38,11 +39,15 @@ export default function KairosShell({ children }: { children: React.ReactNode })
         </div>
 
         <div className="sidebar__nav" style={{ top: 120 }}>
-          <ul className="sidebar__list">
+          <ul className="sidebar__list">  
             {nav.map((item) => {
               const active = item.href === "/kairos" ? pathname === "/kairos" : pathname.startsWith(item.href);
               return (
-                <li key={item.href} className={`sidebar__item ${active ? "sidebar__item--active" : ""}`}>
+                <li
+                  key={item.href}
+                  className={`sidebar__item ${active ? "sidebar__item--active" : ""}`}
+                  style={item.spacer ? { marginTop: 28 } : undefined}
+                >
                   {active ? (
                     <>
                       <span className="sidebar__indicator" aria-hidden="true" />
@@ -70,7 +75,7 @@ export default function KairosShell({ children }: { children: React.ReactNode })
             <li className="sidebar__item" style={{ marginTop: 28 }}>
               <Link className="sidebar__link" href="/kairos/settings">
                 <span className="sidebar__icon" aria-hidden="true">
-                  
+                  
                 </span>
                 <span className="sidebar__label">Settings</span>
               </Link>
@@ -80,7 +85,7 @@ export default function KairosShell({ children }: { children: React.ReactNode })
             <li className="sidebar__item">
               <button className="sidebar__link" type="button" onClick={handleSignOut}>
                 <span className="sidebar__icon" aria-hidden="true">
-                  
+                  
                 </span>
                 <span className="sidebar__label">Sign out</span>
               </button>
@@ -111,7 +116,7 @@ export default function KairosShell({ children }: { children: React.ReactNode })
               src="https://www.figma.com/api/mcp/asset/037799a1-9efb-4278-b7b1-48b71129928e"
               alt="Search icon"
             />
-            <input className="topbar__search-input" type="search" placeholder="Search product, supplier, order" />
+            <input className="topbar__search-input" type="search" placeholder="Search suppliers, products, routes, risks" />
           </form>
 
           <div className="topbar__spacer" aria-hidden="true" />
@@ -131,8 +136,8 @@ export default function KairosShell({ children }: { children: React.ReactNode })
                 alt="Profile"
               />
               <div className="topbar__profile-text">
-                <div className="topbar__name">Kairos</div>
-                <div className="topbar__role">Ag Ops</div>
+                <div className="topbar__name">Team Sheeps</div>
+                <div className="topbar__role">Agricultural Operations</div>
               </div>
             </div>
           </div>
