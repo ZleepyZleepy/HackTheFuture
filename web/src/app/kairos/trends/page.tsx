@@ -90,10 +90,12 @@ function MultilineTick({
   truncate?: boolean;
 }) {
   const lines = splitXAxisLabel(String(payload?.value ?? ""), preserveArrow, truncate);
+  const safeX = x ?? 0;
+  const safeY = (y ?? 0) + 8;
 
   return (
-    <g transform={`translate(${x},${y})`}>
-      <text x={0} y={0} dy={48} textAnchor="middle" fill="#64748b" fontSize={12}>
+    <g transform={`translate(${safeX},${safeY})`}>
+      <text x={0} y={0} textAnchor="middle" fill="#64748b" fontSize={12}>
         {lines.map((line, i) => (
           <tspan key={i} x={0} dy={i === 0 ? 0 : 14}>
             {line}
@@ -600,7 +602,7 @@ export default function Page() {
                 <XAxis
                   dataKey="name"
                   interval={0}
-                  height={120}
+                  height={96}
                   tick={<MultilineTick preserveArrow truncate={false} />}
                 />
                 <YAxis tickFormatter={(v) => `${Math.round(Number(v) / 1000)}k`} />
@@ -626,7 +628,7 @@ export default function Page() {
                 <XAxis
                   dataKey="name"
                   interval={0}
-                  height={120}
+                  height={96}
                   tick={<MultilineTick />}
                 />
                 <YAxis />
@@ -654,7 +656,7 @@ export default function Page() {
                 <XAxis
                   dataKey="name"
                   interval={0}
-                  height={120}
+                  height={96}
                   tick={<MultilineTick />}
                 />
                 <YAxis />
@@ -687,7 +689,7 @@ export default function Page() {
                   ))}
                 </Pie>
                 <Tooltip
-                  formatter={(value: number | string | undefined, _name, props: any) => {
+                  formatter={(value: number | string | undefined) => {
                     const numeric = Number(value ?? 0);
                     const pct =
                       computed.locationVolumeTotal > 0

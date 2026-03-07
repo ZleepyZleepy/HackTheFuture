@@ -208,7 +208,7 @@ export async function POST(req: Request) {
       .filter((item) => item?.urgency === "high")
       .slice(0, 5);
 
-    const subject = "Action Required: KAIROS ALERT";
+    const subject = "KAIROS ALERT: Disruption Detected";
 
     const text = [
       "Action Required: KAIROS ALERT",

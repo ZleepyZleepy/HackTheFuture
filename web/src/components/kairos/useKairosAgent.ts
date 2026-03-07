@@ -144,6 +144,7 @@ export type KairosAdkOutput = {
       title?: string;
       impact?: string;
       type?: string;
+      level?: "low" | "medium" | "high";
       detail?: string;
     }>;
   };
@@ -191,10 +192,22 @@ function computeSummary(rows: any[]) {
   };
 
   const entities = {
-    locations: topN(byLocation, 20).map((x) => x.name).filter(Boolean).slice(0, 8),
-    suppliers: topN(bySupplier, 20).map((x) => x.name).filter(Boolean).slice(0, 8),
-    products: topN(byProduct, 20).map((x) => x.name).filter(Boolean).slice(0, 8),
-    routes: topN(byRoute, 20).map((x) => x.name).filter(Boolean).slice(0, 8),
+    locations: topN(byLocation, 20)
+      .map((x) => x.name)
+      .filter(Boolean)
+      .slice(0, 8),
+    suppliers: topN(bySupplier, 20)
+      .map((x) => x.name)
+      .filter(Boolean)
+      .slice(0, 8),
+    products: topN(byProduct, 20)
+      .map((x) => x.name)
+      .filter(Boolean)
+      .slice(0, 8),
+    routes: topN(byRoute, 20)
+      .map((x) => x.name)
+      .filter(Boolean)
+      .slice(0, 8),
   };
 
   return {
@@ -292,7 +305,12 @@ function buildAlertPayload(params: {
           why: item.details || item.do || "Kairos recommends immediate operational follow-up.",
           steps: [item.do, item.details].filter(Boolean) as string[],
           owner: "Kairos",
-          eta: overallLevel === "high" ? "Immediate" : overallLevel === "medium" ? "24-72 hours" : "Planned",
+          eta:
+            overallLevel === "high"
+              ? "Immediate"
+              : overallLevel === "medium"
+              ? "24-72 hours"
+              : "Planned",
           evidence: evidenceBase,
         }))
       : (output.strategies ?? []).slice(0, 5).map((item, index) => ({
@@ -301,7 +319,12 @@ function buildAlertPayload(params: {
           why: item.summary || "Kairos recommends reviewing this strategy.",
           steps: [item.summary].filter(Boolean) as string[],
           owner: "Kairos",
-          eta: overallLevel === "high" ? "Immediate" : overallLevel === "medium" ? "24-72 hours" : "Planned",
+          eta:
+            overallLevel === "high"
+              ? "Immediate"
+              : overallLevel === "medium"
+              ? "24-72 hours"
+              : "Planned",
           evidence: evidenceBase,
         }));
 
@@ -311,12 +334,16 @@ function buildAlertPayload(params: {
     ...exposures.bySupplier.slice(0, 2).map((x) => ({
       driver: `Supplier: ${x.name}`,
       sharePct: totalSpend > 0 ? (x.value / totalSpend) * 100 : 0,
-      evidence: `${x.name} accounts for ${fmtPct(totalSpend > 0 ? (x.value / totalSpend) * 100 : 0)} of spend.`,
+      evidence: `${x.name} accounts for ${fmtPct(
+        totalSpend > 0 ? (x.value / totalSpend) * 100 : 0
+      )} of spend.`,
     })),
     ...exposures.byProduct.slice(0, 2).map((x) => ({
       driver: `Product: ${x.name}`,
       sharePct: totalSpend > 0 ? (x.value / totalSpend) * 100 : 0,
-      evidence: `${x.name} accounts for ${fmtPct(totalSpend > 0 ? (x.value / totalSpend) * 100 : 0)} of spend.`,
+      evidence: `${x.name} accounts for ${fmtPct(
+        totalSpend > 0 ? (x.value / totalSpend) * 100 : 0
+      )} of spend.`,
     })),
   ].slice(0, 4);
 
@@ -335,7 +362,12 @@ function buildAlertPayload(params: {
         level: escalationLevel,
         message: escalationMessage,
         who: overallLevel === "high" ? ["Ops", "Procurement", "Supply Chain"] : ["Ops", "Procurement"],
-        when: overallLevel === "high" ? "Immediately" : overallLevel === "medium" ? "Within 24 hours" : "Routine review",
+        when:
+          overallLevel === "high"
+            ? "Immediately"
+            : overallLevel === "medium"
+            ? "Within 24 hours"
+            : "Routine review",
         evidence: evidenceBase,
       },
       aiInsights: output.aiInsights ?? [],
@@ -376,7 +408,11 @@ function buildAlertFingerprint(payload: ReturnType<typeof buildAlertPayload>) {
 }
 
 export function useKairosAgent() {
-  const [meta, setMeta] = useState<{ sourceFileName: string | null; count: number | null; updatedAt: Date | null } | null>(null);
+  const [meta, setMeta] = useState<{
+    sourceFileName: string | null;
+    count: number | null;
+    updatedAt: Date | null;
+  } | null>(null);
   const [rows, setRows] = useState<any[]>([]);
   const [insiderCount, setInsiderCount] = useState(0);
   const [insiderNotes, setInsiderNotes] = useState<string[]>([]);
@@ -466,6 +502,8 @@ export function useKairosAgent() {
     updatingRef.current = true;
     setUpdating(true);
     setError(null);
+    setOutput(null);
+    setAgentAsOf(null);
 
     try {
       const { freshMeta, freshRows, freshNotes, userId } = await reloadInputs();
