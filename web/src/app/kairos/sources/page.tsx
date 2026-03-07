@@ -87,7 +87,7 @@ export default function Page() {
             </span>
 
             <span>
-              🕒 Updated:{" "}
+              🕒 Last updated:{" "}
               <span className="font-medium">{lastUpdated ?? "—"}</span>
             </span>
 

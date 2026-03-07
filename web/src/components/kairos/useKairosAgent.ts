@@ -1,11 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { collection, getDocs } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import { loadAgDataFull } from "@/lib/agData";
 
 type Driver = { name: string; value: number };
+type AlertLevel = "low" | "medium" | "high";
+
+const ALERT_FINGERPRINT_STORAGE_KEY = "kairos:lastHighAlertFingerprint";
 
 function topN(map: Map<string, number>, n: number): Driver[] {
   return [...map.entries()]
@@ -16,6 +19,35 @@ function topN(map: Map<string, number>, n: number): Driver[] {
 
 function clamp(n: number, lo: number, hi: number) {
   return Math.max(lo, Math.min(hi, n));
+}
+
+function levelFromScore(score: unknown): AlertLevel {
+  const n = Number(score ?? 0);
+  if (n >= 70) return "high";
+  if (n >= 45) return "medium";
+  return "low";
+}
+
+function normalizeLevel(value: unknown): AlertLevel {
+  const v = String(value ?? "").toLowerCase();
+  if (v === "high") return "high";
+  if (v === "medium" || v === "moderate") return "medium";
+  return "low";
+}
+
+function levelFromSeverity(severity: unknown, fallback: AlertLevel = "low"): AlertLevel {
+  const n = Number(severity);
+  if (!Number.isFinite(n)) return fallback;
+  if (n >= 70) return "high";
+  if (n >= 45) return "medium";
+  return "low";
+}
+
+function fmtPct(value: unknown, digits = 1) {
+  const n = Number(value ?? 0);
+  return new Intl.NumberFormat(undefined, {
+    maximumFractionDigits: digits,
+  }).format(Number.isFinite(n) ? n : 0);
 }
 
 export type KairosAdkOutput = {
@@ -173,7 +205,6 @@ function computeSummary(rows: any[]) {
 }
 
 async function readErrorMessage(res: Response): Promise<string> {
-  // Prefer JSON error, fallback to text
   const contentType = res.headers.get("content-type") ?? "";
   if (contentType.includes("application/json")) {
     const j = await res.json().catch(() => null);
@@ -182,6 +213,166 @@ async function readErrorMessage(res: Response): Promise<string> {
   }
   const t = await res.text().catch(() => "");
   return t ? t.slice(0, 300) : `HTTP ${res.status}`;
+}
+
+function buildAlertPayload(params: {
+  meta: { sourceFileName: string | null; count: number | null; updatedAt: Date | null } | null;
+  kpis: {
+    totalSpend?: number;
+    avgLeadTime?: number;
+    avgStorage?: number;
+    stockoutRiskPct?: number;
+  };
+  exposures: {
+    bySupplier: Driver[];
+    byProduct: Driver[];
+    byLocation: Driver[];
+    byRoute: Driver[];
+  };
+  output: KairosAdkOutput;
+  signalsAsOf: string | null;
+}) {
+  const { meta, kpis, exposures, output, signalsAsOf } = params;
+
+  const overallScore = Number(output.risk?.overallScore ?? 0);
+  const overallLevel = normalizeLevel(output.risk?.level ?? levelFromScore(overallScore));
+
+  const escalationLevel =
+    overallLevel === "high" ? "escalate" : overallLevel === "medium" ? "watch" : "none";
+
+  const escalationMessage =
+    output.risk?.why?.[0] ??
+    (overallLevel === "high"
+      ? "Kairos detected a high-severity disruption pattern that needs immediate review."
+      : overallLevel === "medium"
+      ? "Kairos detected a developing risk pattern that should be monitored closely."
+      : "Kairos risk level is currently stable.");
+
+  const evidenceBase = (output.risk?.why ?? []).filter(Boolean).slice(0, 4);
+
+  const signalRisks = [
+    ...(output.signals?.weatherSignals ?? []).slice(0, 2).map((x) => ({
+      risk: x.title || x.summary || "Weather disruption signal",
+      severity: levelFromSeverity(x.severity, overallLevel),
+      evidence: [...(x.evidence ?? []), x.location, x.timeWindow].filter(Boolean) as string[],
+    })),
+    ...(output.signals?.geoSignals ?? []).slice(0, 2).map((x) => ({
+      risk: x.title || x.summary || "Geopolitics disruption signal",
+      severity: levelFromSeverity(x.severity, overallLevel),
+      evidence: [...(x.evidence ?? []), x.region].filter(Boolean) as string[],
+    })),
+    ...(output.signals?.logisticsSignals ?? []).slice(0, 2).map((x) => ({
+      risk: x.title || x.summary || "Logistics disruption signal",
+      severity: levelFromSeverity(x.severity, overallLevel),
+      evidence: [...(x.evidence ?? []), x.corridor].filter(Boolean) as string[],
+    })),
+    ...(output.signals?.insiderSignals ?? []).slice(0, 2).map((x) => ({
+      risk: x.title || x.summary || "Insider disruption signal",
+      severity: levelFromSeverity(x.severity, overallLevel),
+      evidence: [...(x.evidence ?? [])].filter(Boolean) as string[],
+    })),
+  ];
+
+  const keyRisks =
+    signalRisks.length > 0
+      ? signalRisks
+      : evidenceBase.map((why) => ({
+          risk: why,
+          severity: overallLevel,
+          evidence: [why],
+        }));
+
+  const actionPlanItems = (output.actionPlan ?? []).slice(0, 5);
+
+  const recommendations =
+    actionPlanItems.length > 0
+      ? actionPlanItems.map((item, index) => ({
+          title: item.do || `Action Step ${item.step ?? index + 1}`,
+          urgency: overallLevel,
+          why: item.details || item.do || "Kairos recommends immediate operational follow-up.",
+          steps: [item.do, item.details].filter(Boolean) as string[],
+          owner: "Kairos",
+          eta: overallLevel === "high" ? "Immediate" : overallLevel === "medium" ? "24-72 hours" : "Planned",
+          evidence: evidenceBase,
+        }))
+      : (output.strategies ?? []).slice(0, 5).map((item, index) => ({
+          title: item.title || `Strategy ${index + 1}`,
+          urgency: overallLevel,
+          why: item.summary || "Kairos recommends reviewing this strategy.",
+          steps: [item.summary].filter(Boolean) as string[],
+          owner: "Kairos",
+          eta: overallLevel === "high" ? "Immediate" : overallLevel === "medium" ? "24-72 hours" : "Planned",
+          evidence: evidenceBase,
+        }));
+
+  const totalSpend = Number(kpis.totalSpend ?? 0);
+
+  const topExposureDrivers = [
+    ...exposures.bySupplier.slice(0, 2).map((x) => ({
+      driver: `Supplier: ${x.name}`,
+      sharePct: totalSpend > 0 ? (x.value / totalSpend) * 100 : 0,
+      evidence: `${x.name} accounts for ${fmtPct(totalSpend > 0 ? (x.value / totalSpend) * 100 : 0)} of spend.`,
+    })),
+    ...exposures.byProduct.slice(0, 2).map((x) => ({
+      driver: `Product: ${x.name}`,
+      sharePct: totalSpend > 0 ? (x.value / totalSpend) * 100 : 0,
+      evidence: `${x.name} accounts for ${fmtPct(totalSpend > 0 ? (x.value / totalSpend) * 100 : 0)} of spend.`,
+    })),
+  ].slice(0, 4);
+
+  return {
+    meta: {
+      sourceFileName: meta?.sourceFileName ?? null,
+      count: meta?.count ?? null,
+    },
+    kpis,
+    signals: {
+      asOf: signalsAsOf ?? undefined,
+    },
+    output: {
+      recommendations,
+      escalation: {
+        level: escalationLevel,
+        message: escalationMessage,
+        who: overallLevel === "high" ? ["Ops", "Procurement", "Supply Chain"] : ["Ops", "Procurement"],
+        when: overallLevel === "high" ? "Immediately" : overallLevel === "medium" ? "Within 24 hours" : "Routine review",
+        evidence: evidenceBase,
+      },
+      aiInsights: output.aiInsights ?? [],
+      topExposureDrivers,
+      keyRisks,
+    },
+  };
+}
+
+function shouldAttemptHighAlert(output: KairosAdkOutput): boolean {
+  const level = normalizeLevel(output.risk?.level ?? levelFromScore(output.risk?.overallScore));
+  if (level === "high") return true;
+
+  const anyHighSignal = [
+    ...(output.signals?.weatherSignals ?? []),
+    ...(output.signals?.geoSignals ?? []),
+    ...(output.signals?.logisticsSignals ?? []),
+    ...(output.signals?.insiderSignals ?? []),
+  ].some((item: any) => Number(item?.severity ?? 0) >= 70);
+
+  return anyHighSignal;
+}
+
+function buildAlertFingerprint(payload: ReturnType<typeof buildAlertPayload>) {
+  return JSON.stringify({
+    dataset: payload.meta?.sourceFileName ?? null,
+    count: payload.meta?.count ?? null,
+    stockoutRiskPct: payload.kpis?.stockoutRiskPct ?? null,
+    escalationLevel: payload.output?.escalation?.level ?? null,
+    escalationMessage: payload.output?.escalation?.message ?? null,
+    highRisks: (payload.output?.keyRisks ?? [])
+      .filter((x) => x.severity === "high")
+      .map((x) => x.risk),
+    highRecommendations: (payload.output?.recommendations ?? [])
+      .filter((x) => x.urgency === "high")
+      .map((x) => x.title),
+  });
 }
 
 export function useKairosAgent() {
@@ -198,15 +389,22 @@ export function useKairosAgent() {
 
   const [error, setError] = useState<string | null>(null);
 
-  const summary = useMemo(() => computeSummary(rows), [rows]);
-
   const [uid, setUid] = useState<string | null>(null);
+  const lastAlertFingerprintRef = useRef<string | null>(null);
 
   useEffect(() => {
     updatingRef.current = updating;
   }, [updating]);
 
-  // initial load
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      lastAlertFingerprintRef.current = localStorage.getItem(ALERT_FINGERPRINT_STORAGE_KEY);
+    } catch {
+      lastAlertFingerprintRef.current = null;
+    }
+  }, []);
+
   useEffect(() => {
     const unsub = auth.onAuthStateChanged(async (u) => {
       setUid(u?.uid ?? null);
@@ -262,7 +460,6 @@ export function useKairosAgent() {
     return { freshMeta, freshRows, freshInsiderCount, freshNotes, userId };
   }, [uid]);
 
-  // IMPORTANT: update() no longer depends on `updating` state -> stable identity -> stops flashing loop
   const update = useCallback(async () => {
     if (updatingRef.current) return;
 
@@ -304,9 +501,53 @@ export function useKairosAgent() {
       }
 
       const json = await res.json();
+      const adkOutput = json.output as KairosAdkOutput;
+      const asOf = String(json.asOf ?? "");
 
-      setAgentAsOf(String(json.asOf ?? ""));
-      setOutput(json.output as KairosAdkOutput);
+      setAgentAsOf(asOf);
+      setOutput(adkOutput);
+
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new Event("kairos:agent_ran"));
+      }
+
+      if (shouldAttemptHighAlert(adkOutput)) {
+        const alertPayload = buildAlertPayload({
+          meta: freshMeta,
+          kpis: freshSummary.kpis,
+          exposures: freshSummary.exposures,
+          output: adkOutput,
+          signalsAsOf: asOf,
+        });
+
+        const fingerprint = buildAlertFingerprint(alertPayload);
+        const previousFingerprint =
+          lastAlertFingerprintRef.current ??
+          (typeof window !== "undefined"
+            ? localStorage.getItem(ALERT_FINGERPRINT_STORAGE_KEY)
+            : null);
+
+        if (fingerprint !== previousFingerprint) {
+          try {
+            const alertRes = await fetch("/api/alert", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(alertPayload),
+            });
+
+            const alertJson = await alertRes.json().catch(() => null);
+
+            if (alertRes.ok && alertJson?.ok && !alertJson?.skipped) {
+              lastAlertFingerprintRef.current = fingerprint;
+              if (typeof window !== "undefined") {
+                localStorage.setItem(ALERT_FINGERPRINT_STORAGE_KEY, fingerprint);
+              }
+            }
+          } catch (alertError) {
+            console.warn("Kairos auto-email failed:", alertError);
+          }
+        }
+      }
     } catch (e: any) {
       setError(e?.message ?? "Update failed");
     } finally {

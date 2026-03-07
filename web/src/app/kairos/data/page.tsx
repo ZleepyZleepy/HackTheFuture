@@ -226,7 +226,7 @@ export default function Page() {
             </span>
 
             <span>
-              🕒 Last Updated: <span className="font-medium">{lastUpdated ?? "—"}</span>
+              🕒 Last updated: <span className="font-medium">{lastUpdated ?? "—"}</span>
             </span>
           </div>
         </div>
